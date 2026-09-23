@@ -9,5 +9,6 @@ rust-version.workspace = true
 blake3.workspace = true
 lattice-core = { path = "../lattice-core" }
 serde.workspace = true
-serde_yaml.workspace = true
-thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,271 +1,396 @@
-//! Transparent, offline data classification for graph enrichment.
+//! What data does a cryptographic asset protect, and for how long must it stay secret?
+//!
+//! Transparent and offline. The classifier reads names, never values: identifiers passed to the
+//! crypto call, the variable its result is bound to, the enclosing function's name and
+//! parameters, and the file path. Each is split into tokens (`encryptCardNumber` → encrypt,
+//! card, number) and matched against the data-class dictionary in `knowledge/policy.toml`.
+//! Closer evidence weighs more. Every result names the rule, its confidence and the exact tokens
+//! that decided it, and an analyst can override any label.
 
-use lattice_core::CryptoAsset;
+use lattice_core::policy::{Criticality, DataClass, Policy};
+use lattice_core::{CryptoAsset, FunctionFact};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use std::collections::{BTreeMap, HashMap};
 
-const EMBEDDED_POLICY: &str = include_str!("../../../knowledge/policy.yaml");
-
-#[derive(Debug, Error)]
-pub enum ClassifierError {
-    #[error("embedded classification policy is invalid: {0}")]
-    InvalidPolicy(String),
-}
-
+/// Where a token came from, and how much it counts. A name passed straight into the crypto call
+/// says more about the protected data than the file it lives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DataClassification {
-    Financial,
-    Health,
-    Identity,
-    Credential,
-    Public,
-    Sensitive,
+#[serde(rename_all = "kebab-case")]
+pub enum EvidenceSource {
+    Argument,
+    BoundVariable,
+    Function,
+    Parameter,
+    Path,
 }
 
-impl DataClassification {
-    pub fn as_str(self) -> &'static str {
+impl EvidenceSource {
+    fn weight(self) -> f64 {
         match self {
-            Self::Financial => "financial",
-            Self::Health => "health",
-            Self::Identity => "identity",
-            Self::Credential => "credential",
-            Self::Public => "public",
-            Self::Sensitive => "sensitive",
+            Self::Argument => 1.0,
+            Self::BoundVariable => 0.8,
+            Self::Parameter => 0.7,
+            Self::Function => 0.6,
+            Self::Path => 0.4,
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BusinessCriticality {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl BusinessCriticality {
-    pub fn as_str(self) -> &'static str {
+    fn describe(self) -> &'static str {
         match self {
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Critical => "critical",
+            Self::Argument => "argument",
+            Self::BoundVariable => "bound variable",
+            Self::Function => "function",
+            Self::Parameter => "parameter",
+            Self::Path => "path",
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DataClassificationResult {
+#[serde(rename_all = "camelCase")]
+pub struct TermMatch {
+    pub source: EvidenceSource,
+    /// The name the term was found in, e.g. `card_number`.
+    pub name: String,
+    pub term: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataClassification {
+    /// Stable id of the data asset node in the graph.
     pub data_asset_id: String,
-    pub classification: DataClassification,
+    pub class: String,
     pub secrecy_lifetime_years: f64,
-    pub business_criticality: BusinessCriticality,
-    pub rule_id: String,
+    pub criticality: Criticality,
+    pub rule: String,
     pub confidence: f64,
     pub explanation: String,
+    pub matches: Vec<TermMatch>,
 }
 
-#[derive(Debug, Deserialize)]
-struct Policy {
-    version: String,
-    defaults: Defaults,
-    secrecy_lifetimes: SecrecyLifetimes,
+pub struct Classifier<'p> {
+    policy: &'p Policy,
+    /// token → classes that list it
+    index: HashMap<String, Vec<usize>>,
 }
 
-#[derive(Debug, Deserialize)]
-struct Defaults {
-    data_secrecy_lifetime_years: f64,
-    business_criticality: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SecrecyLifetimes {
-    payment_card: f64,
-    health: f64,
-    identity: f64,
-    credential: f64,
-    session: f64,
-}
-
-#[derive(Debug)]
-pub struct DataClassifier {
-    policy: Policy,
-}
-
-impl DataClassifier {
-    pub fn from_embedded_policy() -> Result<Self, ClassifierError> {
-        let policy = serde_yaml::from_str(EMBEDDED_POLICY)
-            .map_err(|error| ClassifierError::InvalidPolicy(error.to_string()))?;
-        Ok(Self { policy })
+impl<'p> Classifier<'p> {
+    pub fn new(policy: &'p Policy) -> Self {
+        let mut index: HashMap<String, Vec<usize>> = HashMap::new();
+        for (position, class) in policy.data_class.iter().enumerate() {
+            for term in &class.terms {
+                // multi-word terms (`secret_key`) are indexed by their joined tokens
+                let joined: String = tokenize(term).concat();
+                index.entry(joined).or_default().push(position);
+            }
+        }
+        for classes in index.values_mut() {
+            classes.sort_unstable();
+            classes.dedup();
+        }
+        Self { policy, index }
     }
 
-    /// Classifies only metadata already present in findings. Source contents are not retained or
-    /// copied into this layer. Every result identifies the rule and explanation used.
+    /// Classifies the data an asset protects from the names around its uses.
     pub fn classify(
         &self,
         asset: &CryptoAsset,
-        fallback_lifetime_years: Option<f64>,
-    ) -> DataClassificationResult {
-        let haystack = classification_haystack(asset);
-        let matched = if contains_any(
-            &haystack,
-            &["payment", "card", "pan", "upi", "iban", "account", "transaction"],
-        ) {
-            (
-                DataClassification::Financial,
-                self.policy.secrecy_lifetimes.payment_card,
-                BusinessCriticality::Critical,
-                "data.financial",
-                0.85,
-                "Path or API metadata indicates payment or financial data.",
-            )
-        } else if contains_any(&haystack, &["health", "patient", "medical", "diagnosis", "clinical"]) {
-            (
-                DataClassification::Health,
-                self.policy.secrecy_lifetimes.health,
-                BusinessCriticality::Critical,
-                "data.health",
-                0.85,
-                "Path or API metadata indicates health data.",
-            )
-        } else if contains_any(&haystack, &["aadhaar", "passport", "identity", "biometric", "kyc"]) {
-            (
-                DataClassification::Identity,
-                self.policy.secrecy_lifetimes.identity,
-                BusinessCriticality::Critical,
-                "data.identity",
-                0.85,
-                "Path or API metadata indicates long-lived identity data.",
-            )
-        } else if contains_any(
-            &haystack,
-            &["password", "credential", "secret", "auth", "login", "private_key"],
-        ) {
-            (
-                DataClassification::Credential,
-                self.policy.secrecy_lifetimes.credential,
-                BusinessCriticality::High,
-                "data.credential",
-                0.8,
-                "Path or API metadata indicates authentication or credential data.",
-            )
-        } else if contains_any(&haystack, &["public", "example", "fixture", "testdata"]) {
-            (
-                DataClassification::Public,
-                self.policy.secrecy_lifetimes.session,
-                BusinessCriticality::Low,
-                "data.public",
-                0.65,
-                "Path metadata indicates public or non-production fixture data.",
-            )
-        } else {
-            (
-                DataClassification::Sensitive,
-                fallback_lifetime_years.unwrap_or(self.policy.defaults.data_secrecy_lifetime_years),
-                parse_criticality(&self.policy.defaults.business_criticality),
-                "data.default-sensitive",
-                0.25,
-                "No specific data class matched; conservative sensitive-data policy applied.",
-            )
-        };
+        functions: &HashMap<&str, &FunctionFact>,
+    ) -> DataClassification {
+        let mut evidence: Vec<(EvidenceSource, String)> = Vec::new();
+        for occurrence in &asset.occurrences {
+            if let Some(usage) = &occurrence.usage {
+                for identifier in &usage.identifiers {
+                    evidence.push((EvidenceSource::Argument, identifier.clone()));
+                }
+                if let Some(function) = usage.function.as_deref().and_then(|id| functions.get(id)) {
+                    evidence.push((EvidenceSource::Function, function.name.clone()));
+                    for parameter in &function.parameters {
+                        evidence.push((EvidenceSource::Parameter, parameter.clone()));
+                    }
+                }
+            }
+            evidence.push((EvidenceSource::Path, occurrence.location.path.clone()));
+        }
+        self.classify_evidence(&asset.id, &evidence)
+    }
 
-        let location_class = asset
-            .locations
-            .first()
-            .map_or("unknown", |location| location.path.as_str());
-        let identity = format!("{}|{}|{}", asset.id, matched.0.as_str(), location_class);
-        let digest = blake3::hash(identity.as_bytes()).to_hex();
+    /// Classification from explicit evidence. Exposed so protocol assets can inherit their
+    /// component's most sensitive class and tests can drive it directly.
+    pub fn classify_evidence(
+        &self,
+        asset_id: &str,
+        evidence: &[(EvidenceSource, String)],
+    ) -> DataClassification {
+        // Score per class. A term counts once per class, at the strongest source it appears in.
+        let mut best_weight: BTreeMap<(usize, String), (f64, TermMatch)> = BTreeMap::new();
+        for (source, name) in evidence {
+            let tokens = tokenize(name);
+            // single tokens and adjacent pairs (`secret` + `key` → `secretkey`)
+            let mut candidates: Vec<String> = tokens.clone();
+            candidates.extend(tokens.windows(2).map(|pair| pair.concat()));
+            for token in candidates {
+                let Some(classes) = self.index.get(&token) else {
+                    continue;
+                };
+                for &class in classes {
+                    let key = (class, token.clone());
+                    let weight = source.weight();
+                    if best_weight
+                        .get(&key)
+                        .is_some_and(|(existing, _)| *existing >= weight)
+                    {
+                        continue;
+                    }
+                    best_weight.insert(
+                        key,
+                        (
+                            weight,
+                            TermMatch {
+                                source: *source,
+                                name: truncate(name),
+                                term: token.clone(),
+                            },
+                        ),
+                    );
+                }
+            }
+        }
+        let mut scores: BTreeMap<usize, (f64, Vec<TermMatch>)> = BTreeMap::new();
+        for ((class, _), (weight, term_match)) in best_weight {
+            let entry = scores.entry(class).or_default();
+            entry.0 += weight;
+            entry.1.push(term_match);
+        }
 
-        DataClassificationResult {
-            data_asset_id: format!("data/{}/{}", matched.0.as_str(), &digest[..16]),
-            classification: matched.0,
-            secrecy_lifetime_years: matched.1,
-            business_criticality: matched.2,
-            rule_id: format!("{}@{}", matched.3, self.policy.version),
-            confidence: matched.4,
-            explanation: matched.5.into(),
+        // Highest score wins; ties go to the longer secrecy lifetime (the conservative reading).
+        let best = scores
+            .into_iter()
+            .max_by(|(a_class, (a_score, _)), (b_class, (b_score, _))| {
+                a_score.total_cmp(b_score).then_with(|| {
+                    let a = &self.policy.data_class[*a_class];
+                    let b = &self.policy.data_class[*b_class];
+                    a.lifetime_years.total_cmp(&b.lifetime_years)
+                })
+            });
+
+        match best {
+            Some((class, (score, mut matches))) => {
+                let data_class: &DataClass = &self.policy.data_class[class];
+                matches.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.name.cmp(&b.name)));
+                let explanation = format!(
+                    "{} data (secrecy {} years): {}",
+                    data_class.id,
+                    data_class.lifetime_years,
+                    matches
+                        .iter()
+                        .take(3)
+                        .map(|m| format!(
+                            "{} `{}` matches term `{}`",
+                            m.source.describe(),
+                            m.name,
+                            m.term
+                        ))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                );
+                DataClassification {
+                    data_asset_id: data_asset_id(&data_class.id, asset_id),
+                    class: data_class.id.clone(),
+                    secrecy_lifetime_years: data_class.lifetime_years,
+                    criticality: data_class.criticality,
+                    rule: format!("data.{}@{}", data_class.id, self.policy.version),
+                    confidence: round2((0.35 + 0.2 * score).min(0.95)),
+                    explanation,
+                    matches,
+                }
+            }
+            None => self.unclassified(asset_id),
+        }
+    }
+
+    pub fn unclassified(&self, asset_id: &str) -> DataClassification {
+        DataClassification {
+            data_asset_id: data_asset_id("unclassified", asset_id),
+            class: "unclassified".into(),
+            secrecy_lifetime_years: self.policy.defaults.secrecy_lifetime_years,
+            criticality: self.policy.defaults.criticality,
+            rule: format!("data.default@{}", self.policy.version),
+            confidence: 0.25,
+            explanation: format!(
+                "no name around this asset identifies its data; the policy default of {} years applies",
+                self.policy.defaults.secrecy_lifetime_years
+            ),
+            matches: Vec::new(),
         }
     }
 }
 
-fn classification_haystack(asset: &CryptoAsset) -> String {
-    let mut terms = asset
-        .locations
-        .iter()
-        .map(|location| location.path.as_str())
-        .chain(asset.evidence.iter().map(|evidence| evidence.matched_token.as_str()))
-        .collect::<Vec<_>>();
-    terms.sort_unstable();
-    terms.join(" ").to_ascii_lowercase()
+fn data_asset_id(class: &str, asset_id: &str) -> String {
+    let digest = blake3::hash(format!("{class}|{asset_id}").as_bytes()).to_hex();
+    format!("data/{class}/{}", &digest[..16])
 }
 
-fn contains_any(haystack: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| haystack.contains(needle))
-}
-
-fn parse_criticality(value: &str) -> BusinessCriticality {
-    match value.to_ascii_lowercase().as_str() {
-        "low" => BusinessCriticality::Low,
-        "high" => BusinessCriticality::High,
-        "critical" => BusinessCriticality::Critical,
-        _ => BusinessCriticality::Medium,
+/// Splits a name into lowercase word tokens: camelCase, snake_case, kebab-case, paths and
+/// digits all separate. `encryptCardNumber` → [encrypt, card, number]; `payments/api.py` →
+/// [payments, api, py]; `HTTPServer` → [http, server].
+pub fn tokenize(name: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = name.chars().collect();
+    for (index, &c) in chars.iter().enumerate() {
+        if !c.is_alphanumeric() {
+            push(&mut tokens, &mut current);
+            continue;
+        }
+        let previous = index.checked_sub(1).map(|i| chars[i]);
+        let next = chars.get(index + 1).copied();
+        let boundary = match previous {
+            Some(p) if p.is_lowercase() && c.is_uppercase() => true,
+            // `HTTPServer`: the `S` starts a word because a lowercase letter follows it
+            Some(p)
+                if p.is_uppercase() && c.is_uppercase() && next.is_some_and(char::is_lowercase) =>
+            {
+                true
+            }
+            Some(p) if p.is_ascii_digit() != c.is_ascii_digit() => true,
+            _ => false,
+        };
+        if boundary {
+            push(&mut tokens, &mut current);
+        }
+        current.extend(c.to_lowercase());
     }
+    push(&mut tokens, &mut current);
+    tokens
+}
+
+fn push(tokens: &mut Vec<String>, current: &mut String) {
+    if !current.is_empty() {
+        tokens.push(std::mem::take(current));
+    }
+}
+
+fn truncate(name: &str) -> String {
+    name.chars().take(64).collect()
+}
+
+fn round2(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lattice_core::{Algorithm, Evidence, EvidenceGrade, EvidenceKind, Liveness, Location, Surface};
-    use std::collections::{BTreeMap, BTreeSet};
 
-    fn asset(path: &str) -> CryptoAsset {
-        CryptoAsset {
-            id: "crypto/rsa/test".into(),
-            algorithm: Algorithm {
-                family: "RSA".into(),
-                primitive: "public-key".into(),
-                key_size_bits: Some(2048),
-                mode: None,
-                curve: None,
-            },
-            parameters: BTreeMap::new(),
-            locations: vec![Location {
-                path: path.into(),
-                line: Some(1),
-                column: Some(1),
-                byte_offset: Some(0),
-            }],
-            surfaces: BTreeSet::from([Surface::Source]),
-            evidence: vec![Evidence {
-                collector: "source".into(),
-                rule_id: "rsa".into(),
-                rule_version: "1".into(),
-                kind: EvidenceKind::Ast,
-                matched_token: "RSA_new".into(),
-            }],
-            liveness: Liveness::Capable,
-            evidence_grade: EvidenceGrade::C,
-        }
+    fn classifier() -> Classifier<'static> {
+        Classifier::new(Policy::embedded())
     }
 
     #[test]
-    fn financial_paths_receive_long_lived_critical_policy() {
-        let classifier = DataClassifier::from_embedded_policy().unwrap();
-        let result = classifier.classify(&asset("payments/card_vault.py"), None);
-        assert_eq!(result.classification, DataClassification::Financial);
+    fn tokenization_handles_every_naming_style() {
+        assert_eq!(
+            tokenize("encryptCardNumber"),
+            vec!["encrypt", "card", "number"]
+        );
+        assert_eq!(tokenize("card_number"), vec!["card", "number"]);
+        assert_eq!(tokenize("HTTPServer"), vec!["http", "server"]);
+        assert_eq!(
+            tokenize("services/payments/api.py"),
+            vec!["services", "payments", "api", "py"]
+        );
+        assert_eq!(tokenize("sha256Digest"), vec!["sha", "256", "digest"]);
+    }
+
+    #[test]
+    fn argument_names_decide_the_class() {
+        let result = classifier().classify_evidence(
+            "a",
+            &[
+                (EvidenceSource::Argument, "card_number".into()),
+                (EvidenceSource::Path, "src/util.py".into()),
+            ],
+        );
+        assert_eq!(result.class, "financial");
         assert_eq!(result.secrecy_lifetime_years, 10.0);
-        assert_eq!(result.business_criticality, BusinessCriticality::Critical);
-        assert!(result.rule_id.starts_with("data.financial@"));
+        assert_eq!(result.criticality, Criticality::Critical);
+        assert!(
+            result
+                .explanation
+                .contains("argument `card_number` matches term `card`")
+        );
     }
 
     #[test]
-    fn fallback_is_explicit_and_low_confidence() {
-        let classifier = DataClassifier::from_embedded_policy().unwrap();
-        let result = classifier.classify(&asset("src/crypto.c"), Some(7.0));
-        assert_eq!(result.classification, DataClassification::Sensitive);
-        assert_eq!(result.secrecy_lifetime_years, 7.0);
+    fn stronger_evidence_outweighs_a_misleading_path() {
+        // the file is under `payments/` but the call hashes a password
+        let result = classifier().classify_evidence(
+            "a",
+            &[
+                (EvidenceSource::Argument, "userPassword".into()),
+                (EvidenceSource::Path, "payments/login.py".into()),
+            ],
+        );
+        assert_eq!(result.class, "credential");
+    }
+
+    #[test]
+    fn ties_resolve_to_the_longer_lifetime() {
+        let result = classifier().classify_evidence(
+            "a",
+            &[
+                (EvidenceSource::Argument, "patient".into()),
+                (EvidenceSource::Argument, "invoice".into()),
+            ],
+        );
+        assert_eq!(
+            result.class, "health",
+            "20-year health beats 10-year financial on a tie"
+        );
+    }
+
+    #[test]
+    fn multi_word_terms_match_adjacent_tokens() {
+        let result = classifier()
+            .classify_evidence("a", &[(EvidenceSource::Argument, "secretKeyBytes".into())]);
+        assert!(
+            result.matches.iter().any(|m| m.term == "secretkey"),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn unidentified_data_is_explicit_and_low_confidence() {
+        let result =
+            classifier().classify_evidence("a", &[(EvidenceSource::Path, "src/crypto.c".into())]);
+        assert_eq!(result.class, "unclassified");
         assert!(result.confidence < 0.5);
+        assert!(result.explanation.contains("policy default"));
+    }
+
+    #[test]
+    fn classified_government_data_has_the_longest_lifetime() {
+        let result = classifier().classify_evidence(
+            "a",
+            &[(EvidenceSource::Argument, "classifiedReport".into())],
+        );
+        assert_eq!(result.class, "classified");
+        assert_eq!(result.secrecy_lifetime_years, 50.0);
+    }
+
+    #[test]
+    fn a_term_counts_once_per_class() {
+        let once =
+            classifier().classify_evidence("a", &[(EvidenceSource::Argument, "card".into())]);
+        let repeated = classifier().classify_evidence(
+            "a",
+            &[
+                (EvidenceSource::Argument, "card".into()),
+                (EvidenceSource::Argument, "card".into()),
+                (EvidenceSource::Path, "card".into()),
+            ],
+        );
+        assert_eq!(once.confidence, repeated.confidence);
     }
 }

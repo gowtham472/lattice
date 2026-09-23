@@ -10,3 +10,9 @@ lattice-classify = { path = "../lattice-classify" }
 lattice-core = { path = "../lattice-core" }
 petgraph.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

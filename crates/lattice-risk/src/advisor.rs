@@ -1,0 +1,304 @@
+//! Migration advice: what to replace each asset with, what it costs in bytes, and in what order.
+//!
+//! Recommendations follow the asset's *role* (key exchange, signature, bulk encryption, hashing,
+//! protocol policy, stored keys) rather than just its algorithm, because the right replacement
+//! for RSA depends on whether it signs or transports keys. Size deltas are computed from the
+//! parameter sets in the knowledge base (FIPS 203/204 sizes), not quoted from memory.
+
+use crate::{Assessment, Tier};
+use lattice_core::{
+    CryptoAsset, Finding, MaterialType, Primitive, ProtocolKind, QuantumClass, Registry,
+};
+use serde::Serialize;
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SizeDelta {
+    pub before_bytes: u32,
+    pub after_bytes: u32,
+    /// What the bytes are counted over, e.g. `key share + ciphertext per handshake`.
+    pub basis: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Recommendation {
+    /// `replace`, `upgrade`, `enable`, `remove`, `rotate`, `retain`.
+    pub action: String,
+    pub target: String,
+    pub rationale: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_delta: Option<SizeDelta>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoadmapItem {
+    pub wave: u8,
+    pub wave_name: String,
+    pub asset_id: String,
+    pub name: String,
+    pub component: String,
+    pub tier: Tier,
+    pub priority: u8,
+    pub agility: u8,
+    pub migration_years: f64,
+    pub action: String,
+    pub target: String,
+}
+
+/// Public key + ciphertext / key-share bytes of classical key establishment, for size deltas.
+fn classical_key_exchange_bytes(id: &str, curve: Option<&str>, bits: Option<u32>) -> u32 {
+    match id {
+        "x25519" => 32 + 32,
+        "x448" => 56 + 56,
+        "ecdh" => match curve {
+            Some("P-384") => 97 * 2,
+            Some("P-521") => 133 * 2,
+            _ => 65 * 2,
+        },
+        "dh" => bits.unwrap_or(2048) / 8 * 2,
+        "rsa" => bits.unwrap_or(2048) / 8 * 2,
+        _ => 64,
+    }
+}
+
+/// Public key + signature bytes of classical signatures.
+fn classical_signature_bytes(id: &str, curve: Option<&str>, bits: Option<u32>) -> u32 {
+    match id {
+        "ed25519" => 32 + 64,
+        "ed448" => 57 + 114,
+        "ecdsa" => match curve {
+            Some("P-384") => 97 + 104,
+            Some("P-521") => 133 + 139,
+            _ => 65 + 72,
+        },
+        "rsa" | "dsa" => bits.unwrap_or(2048) / 8 * 2,
+        _ => 128,
+    }
+}
+
+fn hybrid_kem_bytes() -> u32 {
+    let registry = Registry::embedded();
+    registry.get("x25519-mlkem768").map_or(2336, |spec| {
+        spec.public_key_bytes.unwrap_or(1216) + spec.ciphertext_bytes.unwrap_or(1120)
+    })
+}
+
+fn ml_dsa_bytes(set: &str) -> u32 {
+    Registry::embedded()
+        .get("ml-dsa")
+        .and_then(|spec| spec.parameter_set(set))
+        .map_or(5261, |set| {
+            set.public_key_bytes.unwrap_or(0) + set.signature_bytes.unwrap_or(0)
+        })
+}
+
+/// The recommendation for one assessed asset.
+pub fn recommend(
+    asset: &CryptoAsset,
+    assessment: &Assessment,
+    data_lifetime_years: f64,
+) -> Recommendation {
+    let registry = Registry::embedded();
+    // Data that must stay secret for decades gets the strongest parameter set.
+    let signature_set = if data_lifetime_years >= 25.0 {
+        "87"
+    } else {
+        "65"
+    };
+    match &asset.finding {
+        Finding::RelatedCryptoMaterial(material) if material.material_type == MaterialType::PrivateKey && !material.encrypted => Recommendation {
+            action: "rotate".into(),
+            target: "a new key held in an HSM or cloud KMS".into(),
+            rationale: "An unencrypted private key sits in a scanned artefact: treat it as disclosed, rotate it, and remove it from the repository and its history.".into(),
+            size_delta: None,
+        },
+        Finding::Certificate(certificate) => {
+            let classical = classical_signature_bytes(&certificate.public_key.id, certificate.public_key.params.curve.as_deref(), certificate.public_key.params.key_bits);
+            Recommendation {
+                action: "replace".into(),
+                target: format!("ML-DSA-{signature_set} certificate (composite ML-DSA + ECDSA during transition)"),
+                rationale: "Certificate signatures can be forged after Q-day for as long as the certificate is trusted; reissue with ML-DSA once the CA and relying parties support it, and shorten validity meanwhile.".into(),
+                size_delta: Some(SizeDelta {
+                    before_bytes: classical,
+                    after_bytes: ml_dsa_bytes(signature_set),
+                    basis: "public key + signature per certificate".into(),
+                }),
+            }
+        }
+        Finding::Protocol(protocol) => {
+            let delta = Some(SizeDelta { before_bytes: 64, after_bytes: hybrid_kem_bytes(), basis: "X25519 → X25519MLKEM768 key shares per handshake".into() });
+            match protocol.protocol {
+                ProtocolKind::Ssh => Recommendation {
+                    action: "enable".into(),
+                    target: "mlkem768x25519-sha256 key exchange (OpenSSH 9.9+)".into(),
+                    rationale: "Put the hybrid ML-KEM key exchange first in KexAlgorithms so recorded sessions stay confidential after Q-day.".into(),
+                    size_delta: delta,
+                },
+                _ if matches!(protocol.version.as_deref(), Some(v) if v.starts_with("ssl") || v == "1.0" || v == "1.1") => Recommendation {
+                    action: "upgrade".into(),
+                    target: "TLS 1.3 with the X25519MLKEM768 group".into(),
+                    rationale: "Remove deprecated protocol versions (RFC 8996) and move to TLS 1.3, which also carries the hybrid post-quantum group.".into(),
+                    size_delta: delta,
+                },
+                _ if assessment.quantum_breakability == 0.0 => Recommendation {
+                    action: "retain".into(),
+                    target: "current configuration".into(),
+                    rationale: "A post-quantum key-exchange group is already offered; keep it first in the preference list.".into(),
+                    size_delta: None,
+                },
+                _ => Recommendation {
+                    action: "enable".into(),
+                    target: "X25519MLKEM768 group (OpenSSL 3.5+, BoringSSL, Go 1.24+)".into(),
+                    rationale: "Add the hybrid group ahead of classical groups: traffic stays confidential after Q-day and classical security is never lower than today.".into(),
+                    size_delta: delta,
+                },
+            }
+        }
+        Finding::Algorithm(_) | Finding::RelatedCryptoMaterial(_) => {
+            let algorithm = match &asset.finding {
+                Finding::Algorithm(finding) => Some(finding.algorithm.clone()),
+                Finding::RelatedCryptoMaterial(material) => material.algorithm.clone(),
+                _ => None,
+            };
+            let Some(algorithm) = algorithm else {
+                return Recommendation {
+                    action: "review".into(),
+                    target: "identify the key type inside the container".into(),
+                    rationale: "The container is password-protected; LATTICE does not open it.".into(),
+                    size_delta: None,
+                };
+            };
+            let Some(spec) = registry.get(&algorithm.id) else {
+                return Recommendation { action: "review".into(), target: "manual review".into(), rationale: "Algorithm outside the knowledge base.".into(), size_delta: None };
+            };
+            let primitive = match &asset.finding {
+                Finding::Algorithm(finding) => finding.primitive.unwrap_or(spec.primitive),
+                _ => spec.primitive,
+            };
+            let params = &algorithm.params;
+            if spec.quantum == QuantumClass::PostQuantum {
+                let weak_set = matches!(params.parameter_set.as_deref(), Some("512" | "44"));
+                return Recommendation {
+                    action: "retain".into(),
+                    target: if weak_set { format!("{} at NIST level 3 or higher", spec.name) } else { format!("{} (verify implementation)", spec.name) },
+                    rationale: if weak_set {
+                        "Already post-quantum; the level-1/2 parameter set is fine for short-lived data, level 3+ for long-lived secrets.".into()
+                    } else {
+                        "Already post-quantum; confirm the implementation is FIPS-validated and constant-time.".into()
+                    },
+                    size_delta: None,
+                };
+            }
+            match primitive {
+                Primitive::KeyAgree | Primitive::Kem | Primitive::Pke if spec.quantum == QuantumClass::Shor => Recommendation {
+                    action: "replace".into(),
+                    target: "hybrid X25519 + ML-KEM-768 (FIPS 203)".into(),
+                    rationale: "Key establishment broken by Shor's algorithm is the harvest-now-decrypt-later target; a hybrid keeps classical security while adding ML-KEM.".into(),
+                    size_delta: Some(SizeDelta {
+                        before_bytes: classical_key_exchange_bytes(&spec.id, params.curve.as_deref(), params.key_bits),
+                        after_bytes: hybrid_kem_bytes(),
+                        basis: "key share + ciphertext per key establishment".into(),
+                    }),
+                },
+                Primitive::Signature if spec.quantum == QuantumClass::Shor => Recommendation {
+                    action: "replace".into(),
+                    target: format!("ML-DSA-{signature_set} (FIPS 204), or SLH-DSA for long-term roots"),
+                    rationale: "Signatures broken by Shor's algorithm can be forged after Q-day; ML-DSA is the general-purpose replacement, SLH-DSA the conservative one for roots of trust.".into(),
+                    size_delta: Some(SizeDelta {
+                        before_bytes: classical_signature_bytes(&spec.id, params.curve.as_deref(), params.key_bits),
+                        after_bytes: ml_dsa_bytes(signature_set),
+                        basis: "public key + signature".into(),
+                    }),
+                },
+                Primitive::Hash | Primitive::Xof if assessment.broken_now => Recommendation {
+                    action: "replace".into(),
+                    target: "SHA-384 (or SHA3-384)".into(),
+                    rationale: format!("{} has practical collisions today; the quantum question is secondary.", spec.name),
+                    size_delta: None,
+                },
+                Primitive::Mac | Primitive::Kdf if params.digest.as_deref().is_some_and(|d| d == "sha-1" || d == "md5") => Recommendation {
+                    action: "upgrade".into(),
+                    target: if spec.id == "pbkdf2" { "Argon2id, or PBKDF2-HMAC-SHA-256 at ≥600,000 iterations".into() } else { format!("{}-SHA-256", spec.name) },
+                    rationale: "The underlying digest is legacy; move to SHA-256 or stronger.".into(),
+                    size_delta: None,
+                },
+                Primitive::BlockCipher | Primitive::StreamCipher | Primitive::Ae => {
+                    let weak_mode = params.mode.as_deref() == Some("ecb");
+                    let needs_change = weak_mode || assessment.broken_now || crate::is_quantum_vulnerable(assessment.quantum_breakability) || assessment.classical_status > lattice_core::ClassicalStatus::Acceptable;
+                    if needs_change {
+                        Recommendation {
+                            action: "replace".into(),
+                            target: "AES-256-GCM".into(),
+                            rationale: if weak_mode {
+                                "ECB encrypts identical blocks identically and leaks structure; use an authenticated mode with a 256-bit key.".into()
+                            } else if assessment.broken_now || assessment.classical_status > lattice_core::ClassicalStatus::Acceptable {
+                                format!("{} is weak today; AES-256-GCM is secure classically and keeps a 128-bit margin under Grover.", spec.name)
+                            } else {
+                                "A 256-bit key keeps a 128-bit margin under Grover's algorithm.".into()
+                            },
+                            size_delta: None,
+                        }
+                    } else {
+                        Recommendation { action: "retain".into(), target: algorithm.to_string(), rationale: "Adequate classically and against quantum search.".into(), size_delta: None }
+                    }
+                }
+                _ if assessment.quantum_breakability <= 0.2 && !assessment.broken_now => Recommendation {
+                    action: "retain".into(),
+                    target: algorithm.to_string(),
+                    rationale: "Adequate classically and against quantum search.".into(),
+                    size_delta: None,
+                },
+                _ => {
+                    let target = spec.replacement.values().next().cloned().unwrap_or_else(|| "a NIST-approved replacement".into());
+                    Recommendation {
+                        action: "replace".into(),
+                        target,
+                        rationale: spec.note.clone().unwrap_or_else(|| format!("{} should be replaced.", spec.name)),
+                        size_delta: None,
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Orders assessed assets into migration waves: urgent quick wins first (high priority, easy to
+/// change), then urgent hard changes, then the rest by priority. Retained assets are excluded.
+pub fn roadmap(items: &[(&CryptoAsset, &Assessment, &Recommendation)]) -> Vec<RoadmapItem> {
+    let mut roadmap: Vec<RoadmapItem> = items
+        .iter()
+        .filter(|(_, _, recommendation)| recommendation.action != "retain")
+        .map(|(asset, assessment, recommendation)| {
+            let urgent = assessment.tier >= Tier::High;
+            let (wave, wave_name) = match (urgent, assessment.agility.score >= 60) {
+                (true, true) => (1, "Wave 1 · urgent quick wins"),
+                (true, false) => (2, "Wave 2 · urgent re-engineering"),
+                (false, _) if assessment.tier == Tier::Medium => (3, "Wave 3 · planned migration"),
+                _ => (4, "Wave 4 · opportunistic hygiene"),
+            };
+            RoadmapItem {
+                wave,
+                wave_name: wave_name.into(),
+                asset_id: asset.id.clone(),
+                name: asset.finding.display_name(),
+                component: asset.component.clone(),
+                tier: assessment.tier,
+                priority: assessment.priority,
+                agility: assessment.agility.score,
+                migration_years: assessment.mosca.y_years,
+                action: recommendation.action.clone(),
+                target: recommendation.target.clone(),
+            }
+        })
+        .collect();
+    roadmap.sort_by(|a, b| {
+        a.wave
+            .cmp(&b.wave)
+            .then_with(|| b.priority.cmp(&a.priority))
+            .then_with(|| b.agility.cmp(&a.agility))
+            .then_with(|| a.asset_id.cmp(&b.asset_id))
+    });
+    roadmap
+}

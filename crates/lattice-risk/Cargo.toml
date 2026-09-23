@@ -6,5 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+lattice-classify = { path = "../lattice-classify" }
 lattice-core = { path = "../lattice-core" }
+lattice-graph = { path = "../lattice-graph" }
 serde.workspace = true
+
+[lints]
+workspace = true

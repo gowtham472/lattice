@@ -1,206 +1,788 @@
-//! Deterministic and explainable quantum-risk scoring.
+//! Deterministic, explainable quantum and classical risk for each cryptographic asset.
+//!
+//! Every number comes with the terms that produced it:
+//! * **Quantum Breakability** (0–1): how completely a quantum adversary defeats the asset.
+//! * **Classical status**: whether it is already weak today, independent of Q-day.
+//! * **Threat**: *harvest* (confidentiality: record now, decrypt later), *forge* (authenticity:
+//!   forge signatures after Q-day while they are still trusted) or *integrity* (hashes, MACs).
+//! * **Exposure index** (0–100): HNDL for harvest assets, TNFL (trust-now-forge-later) for forge
+//!   assets: `100 · exposure · min(X / cap, 1) · QB · liveness`.
+//! * **Crypto-Agility Score** (0–100): measured from how the code actually uses the algorithm.
+//! * **Mosca's inequality**: X (secrecy or trust lifetime) + Y (migration time from agility)
+//!   against Z (years to Q-day), for both ends of the policy's Q-day range.
+//! * **Priority** (0–100) and tier, with every contributing reason listed.
+//!
+//! The migration advisor (`advisor`) turns assessments into recommendations and a roadmap.
 
-use lattice_core::{CryptoAsset, Liveness};
-use serde::{Deserialize, Serialize};
+pub mod advisor;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+use lattice_core::policy::{Criticality, Policy};
+use lattice_core::{
+    AlgorithmRef, AlgorithmSource, ApiStyle, ClassicalStatus, CryptoAsset, Finding, Liveness,
+    Primitive, ProtocolKind, QuantumClass, Registry, Surface,
+};
+use lattice_graph::AssetContext;
+use serde::Serialize;
+use std::collections::BTreeSet;
+
+/// Quantum breakability at or above which a cryptographically relevant quantum computer is taken
+/// to break the asset: Shor-broken (1.0) or Grover leaving too little margin (0.5). Below it
+/// (SHA-256, AES-256) quantum search only erodes a margin that remains adequate, so Mosca's
+/// inequality does not apply and nothing counts as quantum-vulnerable.
+pub const QUANTUM_VULNERABLE: f64 = 0.5;
+
+pub fn is_quantum_vulnerable(quantum_breakability: f64) -> bool {
+    quantum_breakability >= QUANTUM_VULNERABLE
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Threat {
+    /// Confidentiality: traffic or data recorded today is decrypted after Q-day.
+    Harvest,
+    /// Authenticity: signatures forged after Q-day while they are still trusted.
+    Forge,
+    /// Hashes, MACs, KDFs: quantum search weakens them; broken ones are broken today.
+    Integrity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Exposure {
-    Internet,
-    Partner,
-    Internal,
-    DeadCode,
+pub enum Tier {
+    Info,
+    Low,
+    Medium,
+    High,
+    Critical,
 }
 
-impl Exposure {
-    pub fn weight(self) -> f64 {
+impl Tier {
+    pub fn as_str(self) -> &'static str {
         match self {
-            Self::Internet => 1.0,
-            Self::Partner => 0.6,
-            Self::Internal => 0.3,
-            Self::DeadCode => 0.0,
+            Self::Info => "info",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Critical => "critical",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        [
+            Self::Info,
+            Self::Low,
+            Self::Medium,
+            Self::High,
+            Self::Critical,
+        ]
+        .into_iter()
+        .find(|tier| tier.as_str().eq_ignore_ascii_case(value.trim()))
+    }
+
+    fn from_priority(priority: u8) -> Self {
+        match priority {
+            80.. => Self::Critical,
+            60.. => Self::High,
+            35.. => Self::Medium,
+            10.. => Self::Low,
+            _ => Self::Info,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgilityFactors {
-    pub provider_interface: bool,
-    pub config_driven: bool,
-    pub negotiation_layer: bool,
-    pub centralized: bool,
-    pub dependency_pqc_ready: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct RiskContext {
-    pub data_secrecy_lifetime_years: f64,
-    pub exposure: Exposure,
-    pub assessment_year: u16,
-    pub q_day_year: u16,
-    pub agility: AgilityFactors,
-}
-
-impl Default for RiskContext {
-    fn default() -> Self {
-        Self {
-            data_secrecy_lifetime_years: 5.0,
-            exposure: Exposure::Internal,
-            assessment_year: 2026,
-            q_day_year: 2035,
-            agility: AgilityFactors::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ScoreTerm {
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Term {
     pub name: String,
     pub value: f64,
+    pub reason: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MoscaAssessment {
-    pub data_lifetime_years: f64,
-    pub migration_time_years: f64,
-    pub years_until_q_day: f64,
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgilityFactor {
+    pub name: String,
+    pub points: u8,
+    pub max: u8,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Agility {
+    pub score: u8,
+    pub factors: Vec<AgilityFactor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mosca {
+    pub applicable: bool,
+    /// X: how long the protected data must stay secret (or the signature stay trusted).
+    pub x_years: f64,
+    pub x_reason: String,
+    /// Y: estimated migration time, from the crypto-agility score.
+    pub y_years: f64,
+    /// Z at the pessimistic and optimistic ends of the policy's Q-day range.
+    pub z_earliest_years: f64,
+    pub z_latest_years: f64,
+    /// X + Y > Z(earliest): urgent if a quantum computer arrives as early as policy fears.
     pub urgent: bool,
+    /// X + Y > Z(latest): urgent even under the optimistic Q-day.
+    pub urgent_even_if_late: bool,
+    /// (X + Y) − Z(earliest), in years; positive means already late.
     pub urgency_years: f64,
+    pub verdict: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Recommendation {
-    pub target: String,
-    pub rationale: String,
-    pub handshake_bytes_delta: i32,
-    pub latency_ms_delta: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RiskAssessment {
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Assessment {
     pub quantum_breakability: f64,
+    pub quantum_reason: String,
+    pub classical_status: ClassicalStatus,
+    pub classical_reasons: Vec<String>,
     pub broken_now: bool,
-    pub crypto_agility_score: u8,
-    pub mosca: MoscaAssessment,
-    pub hndl_index: f64,
-    pub hndl_terms: Vec<ScoreTerm>,
-    pub recommendation: Recommendation,
+    pub threat: Threat,
+    /// `hndl`, `tnfl` or `integrity`.
+    pub index_kind: String,
+    pub exposure_index: f64,
+    pub index_terms: Vec<Term>,
+    pub agility: Agility,
+    pub mosca: Mosca,
+    pub priority: u8,
+    pub tier: Tier,
+    pub priority_reasons: Vec<String>,
 }
 
-pub fn assess(asset: &CryptoAsset, context: RiskContext) -> RiskAssessment {
-    let (quantum_breakability, broken_now) = quantum_breakability(
-        &asset.algorithm.family,
-        asset.algorithm.key_size_bits,
-    );
-    let crypto_agility_score = agility_score(context.agility);
-    let migration_time_years = round2(0.25 + f64::from(100 - crypto_agility_score) / 25.0);
-    let years_until_q_day = f64::from(context.q_day_year.saturating_sub(context.assessment_year));
-    let urgency_years = round2(
-        context.data_secrecy_lifetime_years + migration_time_years - years_until_q_day,
-    );
-    let mosca = MoscaAssessment {
-        data_lifetime_years: context.data_secrecy_lifetime_years,
-        migration_time_years,
-        years_until_q_day,
-        urgent: urgency_years > 0.0,
-        urgency_years,
-    };
-
-    let liveness_weight = match asset.liveness {
-        Liveness::Confirmed => 1.0,
-        Liveness::Configured => 0.7,
-        Liveness::Capable => 0.4,
-    };
-    let lifetime_weight = (context.data_secrecy_lifetime_years / 25.0).clamp(0.0, 1.0);
-    let hndl_index = round2(
-        100.0
-            * context.exposure.weight()
-            * lifetime_weight
-            * quantum_breakability
-            * liveness_weight,
-    );
-    let hndl_terms = vec![
-        ScoreTerm { name: "externalExposure".into(), value: context.exposure.weight() },
-        ScoreTerm { name: "normalizedDataLifetime".into(), value: lifetime_weight },
-        ScoreTerm { name: "quantumBreakability".into(), value: quantum_breakability },
-        ScoreTerm { name: "livenessWeight".into(), value: liveness_weight },
-    ];
-
-    RiskAssessment {
-        quantum_breakability,
-        broken_now,
-        crypto_agility_score,
-        mosca,
-        hndl_index,
-        hndl_terms,
-        recommendation: recommendation(&asset.algorithm.family, asset.algorithm.key_size_bits),
-    }
+#[derive(Debug, Clone, Copy)]
+pub struct Assessor<'p> {
+    pub policy: &'p Policy,
+    /// Fixed so results are reproducible; never read from the clock.
+    pub assessment_year: u16,
 }
 
-pub fn quantum_breakability(family: &str, key_size_bits: Option<u32>) -> (f64, bool) {
-    let normalized = family.to_ascii_uppercase().replace('_', "-");
-    match normalized.as_str() {
-        "RSA" | "DH" | "ECDH" | "ECDHE" | "ECDSA" | "DSA" | "ELGAMAL" => (1.0, false),
-        "MD5" | "SHA-1" | "SHA1" | "DES" | "3DES" | "TRIPLEDES" | "RC4" => (1.0, true),
-        "AES" if key_size_bits.unwrap_or(128) < 256 => (0.5, false),
-        "AES" => (0.1, false),
-        "SHA-256" | "SHA256" => (0.2, false),
-        "SHA-384" | "SHA384" | "SHA-512" | "SHA512" | "CHACHA20" => (0.1, false),
-        "ML-KEM" | "MLKEM" | "KYBER" | "ML-DSA" | "MLDSA" | "DILITHIUM" | "SLH-DSA" => {
-            (0.0, false)
+impl Assessor<'_> {
+    pub fn assess(&self, asset: &CryptoAsset, context: &AssetContext) -> Assessment {
+        let policy = self.policy;
+        let (quantum_breakability, quantum_reason) = quantum_breakability(asset);
+        let (classical_status, classical_reasons) = self.classical(asset);
+        let broken_now = classical_status == ClassicalStatus::Broken;
+        let threat = threat_of(asset);
+        let agility = agility(asset, context, policy);
+        let mosca = self.mosca(asset, context, &agility, quantum_breakability);
+
+        let liveness_weight = match asset.liveness {
+            Liveness::Confirmed => policy.liveness_weight.confirmed,
+            Liveness::Configured => policy.liveness_weight.configured,
+            Liveness::Capable => policy.liveness_weight.capable,
+        };
+        let lifetime_factor = (mosca.x_years / policy.hndl.lifetime_cap_years).clamp(0.0, 1.0);
+        let exposure_index = round2(
+            100.0 * context.exposure * lifetime_factor * quantum_breakability * liveness_weight,
+        );
+        let index_kind = match threat {
+            Threat::Harvest => "hndl",
+            Threat::Forge => "tnfl",
+            Threat::Integrity => "integrity",
+        };
+        let index_terms = vec![
+            Term {
+                name: "exposure".into(),
+                value: context.exposure,
+                reason: context.exposure_reason.clone(),
+            },
+            Term {
+                name: "lifetime".into(),
+                value: round2(lifetime_factor),
+                reason: format!(
+                    "{} of a {}-year cap: {}",
+                    mosca.x_years, policy.hndl.lifetime_cap_years, mosca.x_reason
+                ),
+            },
+            Term {
+                name: "quantumBreakability".into(),
+                value: quantum_breakability,
+                reason: quantum_reason.clone(),
+            },
+            Term {
+                name: "liveness".into(),
+                value: liveness_weight,
+                reason: asset.liveness_reason.clone(),
+            },
+        ];
+
+        let (priority, priority_reasons) = priority(
+            exposure_index,
+            index_kind,
+            broken_now,
+            classical_status,
+            &classical_reasons,
+            &mosca,
+            context,
+            quantum_breakability,
+        );
+        Assessment {
+            quantum_breakability,
+            quantum_reason,
+            classical_status,
+            classical_reasons,
+            broken_now,
+            threat,
+            index_kind: index_kind.into(),
+            exposure_index,
+            index_terms,
+            agility,
+            mosca,
+            priority,
+            tier: Tier::from_priority(priority),
+            priority_reasons,
         }
-        _ => (0.5, false),
+    }
+
+    fn classical(&self, asset: &CryptoAsset) -> (ClassicalStatus, Vec<String>) {
+        let registry = Registry::embedded();
+        let strength = |algorithm: &AlgorithmRef| {
+            registry
+                .strength(algorithm)
+                .map_or((ClassicalStatus::Acceptable, Vec::new()), |s| {
+                    (s.classical_status, s.reasons)
+                })
+        };
+        match &asset.finding {
+            Finding::Algorithm(finding) => strength(&finding.algorithm),
+            Finding::Certificate(certificate) => {
+                let (key_status, mut reasons) = strength(&certificate.public_key);
+                let (signature_status, signature_reasons) = strength(&certificate.signature);
+                reasons.extend(signature_reasons);
+                let mut status = key_status.max(signature_status);
+                if let Some(year) = year_of(&certificate.not_after)
+                    && year < i32::from(self.assessment_year)
+                {
+                    status = status.max(ClassicalStatus::Disallowed);
+                    reasons.push(format!("certificate expired {}", certificate.not_after));
+                }
+                if let (Some(from), Some(to)) = (
+                    year_of(&certificate.not_before),
+                    year_of(&certificate.not_after),
+                ) && to - from > 2
+                    && !certificate.is_ca
+                {
+                    status = status.max(ClassicalStatus::Legacy);
+                    reasons.push(format!(
+                        "leaf certificate valid for {} years; public CAs cap leaf validity at 398 days",
+                        to - from
+                    ));
+                }
+                (status, reasons)
+            }
+            Finding::Protocol(protocol) => {
+                let mut reasons = Vec::new();
+                let status = match protocol.version.as_deref() {
+                    Some(version) if version.starts_with("ssl") => {
+                        reasons.push(format!(
+                            "SSL {} is broken (POODLE, DROWN) and prohibited by RFC 7568",
+                            version.trim_start_matches("ssl")
+                        ));
+                        ClassicalStatus::Broken
+                    }
+                    Some("1.0" | "1.1") if protocol.protocol != ProtocolKind::Ssh => {
+                        reasons.push(format!(
+                            "TLS {} is deprecated by RFC 8996",
+                            protocol.version.as_deref().unwrap_or("")
+                        ));
+                        ClassicalStatus::Disallowed
+                    }
+                    _ => ClassicalStatus::Acceptable,
+                };
+                let mut status = status;
+                for suite in &protocol.cipher_suites {
+                    if let Some(parsed) = lattice_core::names::parse_cipher_suite(suite)
+                        && !parsed.weaknesses.is_empty()
+                    {
+                        status = status.max(ClassicalStatus::Broken);
+                        reasons.extend(parsed.weaknesses.iter().map(|w| format!("{suite}: {w}")));
+                    }
+                }
+                (status, reasons)
+            }
+            Finding::RelatedCryptoMaterial(material) => {
+                let (mut status, mut reasons) = material
+                    .algorithm
+                    .as_ref()
+                    .map_or((ClassicalStatus::Acceptable, Vec::new()), strength);
+                if material.material_type == lattice_core::MaterialType::PrivateKey
+                    && !material.encrypted
+                {
+                    status = status.max(ClassicalStatus::Disallowed);
+                    reasons.push(
+                        "unencrypted private key stored at rest in a scanned artefact".into(),
+                    );
+                }
+                (status, reasons)
+            }
+        }
+    }
+
+    fn mosca(
+        &self,
+        asset: &CryptoAsset,
+        context: &AssetContext,
+        agility: &Agility,
+        quantum_breakability: f64,
+    ) -> Mosca {
+        let policy = self.policy;
+        let (x_years, x_reason) = match &asset.finding {
+            Finding::Certificate(certificate) => {
+                let remaining = year_of(&certificate.not_after).map_or(0.0, |year| {
+                    (f64::from(year) - f64::from(self.assessment_year)).max(0.0)
+                });
+                (
+                    remaining,
+                    format!(
+                        "the certificate stays trusted until {}",
+                        certificate.not_after
+                    ),
+                )
+            }
+            _ => (
+                context.data.secrecy_lifetime_years,
+                context.data.explanation.clone(),
+            ),
+        };
+        let y_years = round2(
+            policy.agility.base_years
+                + f64::from(100 - agility.score) * policy.agility.years_per_point,
+        );
+        let z_earliest_years = f64::from(
+            policy
+                .q_day
+                .earliest_year
+                .saturating_sub(self.assessment_year),
+        );
+        let z_latest_years = f64::from(
+            policy
+                .q_day
+                .latest_year
+                .saturating_sub(self.assessment_year),
+        );
+        let applicable = is_quantum_vulnerable(quantum_breakability);
+        let total = x_years + y_years;
+        let urgent = applicable && total > z_earliest_years;
+        let urgent_even_if_late = applicable && total > z_latest_years;
+        let urgency_years = round2(total - z_earliest_years);
+        let verdict = if !applicable {
+            "quantum-safe at its current parameters: the inequality does not apply".to_owned()
+        } else if urgent_even_if_late {
+            format!(
+                "X + Y = {total:.2} years exceeds even the latest Q-day ({z_latest_years} years away): already late"
+            )
+        } else if urgent {
+            format!(
+                "X + Y = {total:.2} years exceeds the earliest Q-day ({z_earliest_years} years away): migrate now"
+            )
+        } else {
+            format!(
+                "X + Y = {total:.2} years fits before the earliest Q-day ({z_earliest_years} years away): plan, do not panic"
+            )
+        };
+        Mosca {
+            applicable,
+            x_years,
+            x_reason,
+            y_years,
+            z_earliest_years,
+            z_latest_years,
+            urgent,
+            urgent_even_if_late,
+            urgency_years,
+            verdict,
+        }
     }
 }
 
-pub fn agility_score(factors: AgilityFactors) -> u8 {
-    u8::from(factors.provider_interface) * 40
-        + u8::from(factors.config_driven) * 20
-        + u8::from(factors.negotiation_layer) * 15
-        + u8::from(factors.centralized) * 15
-        + u8::from(factors.dependency_pqc_ready) * 10
+/// Quantum breakability with its reason (architecture.md §6.1).
+pub fn quantum_breakability(asset: &CryptoAsset) -> (f64, String) {
+    let registry = Registry::embedded();
+    let for_algorithm = |algorithm: &AlgorithmRef| -> (f64, String) {
+        let Some(spec) = registry.get(&algorithm.id) else {
+            return (
+                0.5,
+                format!(
+                    "`{}` is not in the knowledge base; assumed partially exposed",
+                    algorithm.id
+                ),
+            );
+        };
+        let strength = registry.strength(algorithm);
+        if strength
+            .as_ref()
+            .is_some_and(|s| s.classical_status == ClassicalStatus::Broken)
+            && spec.quantum != QuantumClass::PostQuantum
+        {
+            return (1.0, format!("{} is already broken classically", spec.name));
+        }
+        match spec.quantum {
+            QuantumClass::Shor => (
+                1.0,
+                format!(
+                    "Shor's algorithm breaks {} outright (factoring / discrete logarithm)",
+                    spec.name
+                ),
+            ),
+            QuantumClass::PostQuantum => (
+                0.0,
+                format!(
+                    "{} is a post-quantum standard ({})",
+                    spec.name,
+                    spec.standard.as_deref().unwrap_or("NIST PQC")
+                ),
+            ),
+            QuantumClass::Grover => {
+                let bits = strength.as_ref().and_then(|s| s.classical_bits);
+                match spec.primitive {
+                    Primitive::Hash | Primitive::Xof => match spec.output_bits {
+                        Some(384..) => (
+                            0.1,
+                            format!(
+                                "{}: Grover leaves a comfortable margin at {} output bits",
+                                spec.name,
+                                spec.output_bits.unwrap_or(0)
+                            ),
+                        ),
+                        Some(256..) => (
+                            0.2,
+                            format!(
+                                "{}: quantum search halves preimage security to 128 bits; collision margin stays adequate",
+                                spec.name
+                            ),
+                        ),
+                        _ => (
+                            0.5,
+                            format!(
+                                "{}: short output leaves little margin under quantum search",
+                                spec.name
+                            ),
+                        ),
+                    },
+                    _ => match bits {
+                        Some(bits) if bits >= 256 => (
+                            0.1,
+                            format!(
+                                "{}: Grover leaves {}-bit effective security",
+                                spec.name,
+                                bits / 2
+                            ),
+                        ),
+                        Some(bits) => (
+                            0.5,
+                            format!(
+                                "{}: Grover leaves only {}-bit effective security; use 256-bit keys",
+                                spec.name,
+                                bits / 2
+                            ),
+                        ),
+                        None => (
+                            0.5,
+                            format!(
+                                "{}: key size unknown, assumed below 256 bits (Grover halves it)",
+                                spec.name
+                            ),
+                        ),
+                    },
+                }
+            }
+        }
+    };
+    match &asset.finding {
+        Finding::Algorithm(finding) => for_algorithm(&finding.algorithm),
+        Finding::Certificate(certificate) => {
+            let (qb, reason) = for_algorithm(&certificate.public_key);
+            (qb, format!("certificate key: {reason}"))
+        }
+        Finding::RelatedCryptoMaterial(material) => match &material.algorithm {
+            Some(algorithm) => for_algorithm(algorithm),
+            None => (
+                0.5,
+                "key container of unknown algorithm; assumed partially exposed".into(),
+            ),
+        },
+        Finding::Protocol(protocol) => {
+            let post_quantum_group = protocol
+                .groups
+                .iter()
+                .chain(&protocol.cipher_suites)
+                .filter_map(|name| {
+                    lattice_core::names::resolve_group(name)
+                        .or_else(|| lattice_core::names::resolve(name))
+                })
+                .any(|algorithm| {
+                    registry
+                        .get(&algorithm.id)
+                        .is_some_and(|spec| spec.quantum == QuantumClass::PostQuantum)
+                });
+            if post_quantum_group {
+                (
+                    0.0,
+                    format!(
+                        "{} offers a post-quantum key exchange",
+                        protocol.protocol.as_str().to_ascii_uppercase()
+                    ),
+                )
+            } else {
+                (
+                    1.0,
+                    format!(
+                        "{} key exchange without a post-quantum group can be recorded today and decrypted after Q-day",
+                        protocol.protocol.as_str().to_ascii_uppercase()
+                    ),
+                )
+            }
+        }
+    }
 }
 
-fn recommendation(family: &str, key_size_bits: Option<u32>) -> Recommendation {
-    let normalized = family.to_ascii_uppercase().replace('_', "-");
-    match normalized.as_str() {
-        "RSA" | "ECDSA" | "DSA" => Recommendation {
-            target: "ML-DSA-65 (FIPS 204), or hybrid during transition".into(),
-            rationale: "Replace Shor-vulnerable public-key signatures with a standardized post-quantum signature.".into(),
-            handshake_bytes_delta: 3200,
-            latency_ms_delta: 0.6,
-        },
-        "DH" | "ECDH" | "ECDHE" | "ELGAMAL" => Recommendation {
-            target: "Hybrid X25519 + ML-KEM-768 (FIPS 203)".into(),
-            rationale: "Use hybrid key establishment until the ecosystem permits a PQC-only transition.".into(),
-            handshake_bytes_delta: 1184,
-            latency_ms_delta: 0.4,
-        },
-        "MD5" | "SHA-1" | "SHA1" => Recommendation {
-            target: "SHA-384 or SHA-512".into(),
-            rationale: "The current hash is broken classically and should be removed independently of Q-day.".into(),
-            handshake_bytes_delta: 0,
-            latency_ms_delta: 0.0,
-        },
-        "AES" if key_size_bits.unwrap_or(128) < 256 => Recommendation {
-            target: "AES-256-GCM".into(),
-            rationale: "Increase symmetric key strength to retain an adequate margin under Grover's algorithm.".into(),
-            handshake_bytes_delta: 0,
-            latency_ms_delta: 0.0,
-        },
-        "ML-KEM" | "MLKEM" | "KYBER" | "ML-DSA" | "MLDSA" | "DILITHIUM" | "SLH-DSA" => Recommendation {
-            target: "Retain standardized PQC; verify parameter set and implementation".into(),
-            rationale: "The algorithm family is post-quantum; operational and implementation review still applies.".into(),
-            handshake_bytes_delta: 0,
-            latency_ms_delta: 0.0,
-        },
-        _ => Recommendation {
-            target: "Review against current organizational cryptographic policy".into(),
-            rationale: "No automatic migration target is safe without protocol and usage context.".into(),
-            handshake_bytes_delta: 0,
-            latency_ms_delta: 0.0,
-        },
+fn threat_of(asset: &CryptoAsset) -> Threat {
+    let registry = Registry::embedded();
+    match &asset.finding {
+        Finding::Certificate(_) => Threat::Forge,
+        Finding::Protocol(_) => Threat::Harvest,
+        Finding::RelatedCryptoMaterial(material) => material
+            .algorithm
+            .as_ref()
+            .and_then(|a| registry.get(&a.id))
+            .map_or(Threat::Harvest, |spec| {
+                if spec.primitive == Primitive::Signature {
+                    Threat::Forge
+                } else {
+                    Threat::Harvest
+                }
+            }),
+        Finding::Algorithm(finding) => {
+            let primitive = finding.primitive.or_else(|| {
+                registry
+                    .get(&finding.algorithm.id)
+                    .map(|spec| spec.primitive)
+            });
+            match primitive {
+                Some(Primitive::Signature) => Threat::Forge,
+                Some(
+                    Primitive::Hash
+                    | Primitive::Xof
+                    | Primitive::Mac
+                    | Primitive::Kdf
+                    | Primitive::Drbg,
+                ) => Threat::Integrity,
+                _ => Threat::Harvest,
+            }
+        }
     }
+}
+
+/// Crypto-Agility Score, measured from the asset's actual uses (architecture.md §6.5).
+pub fn agility(asset: &CryptoAsset, context: &AssetContext, policy: &Policy) -> Agility {
+    let weights = &policy.agility;
+    let usages: Vec<_> = asset.usages().collect();
+    let configured = asset
+        .occurrences
+        .iter()
+        .any(|o| matches!(o.surface, Surface::Config | Surface::Cloud));
+    let mut factors = Vec::new();
+
+    // provider interface
+    let provider = if !usages.is_empty() {
+        let via_provider = usages
+            .iter()
+            .filter(|u| matches!(u.api_style, ApiStyle::Provider | ApiStyle::Protocol))
+            .count();
+        let share = via_provider as f64 / usages.len() as f64;
+        let points = (f64::from(weights.provider_interface) * share).round() as u8;
+        (
+            points,
+            format!(
+                "{via_provider} of {} code uses go through a provider interface that selects the algorithm by name",
+                usages.len()
+            ),
+        )
+    } else if configured || matches!(asset.finding, Finding::Protocol(_)) {
+        (
+            weights.provider_interface,
+            "selected in configuration, not hard-coded in a call".into(),
+        )
+    } else {
+        (
+            0,
+            "no source-level use seen: compiled in or stored, not selectable".into(),
+        )
+    };
+    factors.push(AgilityFactor {
+        name: "providerInterface".into(),
+        points: provider.0,
+        max: weights.provider_interface,
+        reason: provider.1,
+    });
+
+    // configuration-driven choice
+    let sources: BTreeSet<AlgorithmSource> = usages.iter().map(|u| u.algorithm_source).collect();
+    let config = if configured || sources.contains(&AlgorithmSource::Dynamic) {
+        (weights.config_driven, "the algorithm comes from configuration or a runtime value: changing it needs no code change".to_owned())
+    } else if sources.contains(&AlgorithmSource::Constant) {
+        (
+            weights.config_driven / 2,
+            "the algorithm is a named constant: one edit changes every use".to_owned(),
+        )
+    } else {
+        (0, "the algorithm is written at each call site".to_owned())
+    };
+    factors.push(AgilityFactor {
+        name: "configDriven".into(),
+        points: config.0,
+        max: weights.config_driven,
+        reason: config.1,
+    });
+
+    // negotiation
+    let negotiated = matches!(asset.finding, Finding::Protocol(_))
+        || usages.iter().any(|u| u.api_style == ApiStyle::Protocol)
+        || asset.occurrences.iter().any(|o| {
+            let rule = o.evidence.rule_id.as_str();
+            rule.contains("cipher")
+                || rule.contains("group")
+                || rule.contains("ssl")
+                || rule.contains("tls")
+                || rule.contains("ssh")
+        });
+    factors.push(AgilityFactor {
+        name: "negotiation".into(),
+        points: if negotiated { weights.negotiation } else { 0 },
+        max: weights.negotiation,
+        reason: if negotiated {
+            "chosen by protocol negotiation: peers can move to a new algorithm without a flag day"
+                .into()
+        } else {
+            "not negotiated: both ends must change together".into()
+        },
+    });
+
+    // centralisation
+    let places: BTreeSet<&str> = asset
+        .occurrences
+        .iter()
+        .map(|o| {
+            o.usage
+                .as_ref()
+                .and_then(|u| u.function.as_deref())
+                .unwrap_or(o.location.path.as_str())
+        })
+        .collect();
+    let centralised = match places.len() {
+        0 | 1 => weights.centralized,
+        2 => weights.centralized * 2 / 3,
+        3..=5 => weights.centralized / 3,
+        _ => 0,
+    };
+    factors.push(AgilityFactor {
+        name: "centralized".into(),
+        points: centralised,
+        max: weights.centralized,
+        reason: format!(
+            "used in {} place{}",
+            places.len(),
+            if places.len() == 1 { "" } else { "s" }
+        ),
+    });
+
+    // dependency readiness
+    let already_pqc = quantum_breakability(asset).0 == 0.0;
+    let dependency = if already_pqc {
+        (
+            weights.dependency_pqc_ready,
+            "already post-quantum".to_owned(),
+        )
+    } else if let Some(library) = &context.pqc_ready_library {
+        (
+            weights.dependency_pqc_ready,
+            format!("the component already links a PQC-capable library: {library}"),
+        )
+    } else {
+        (
+            0,
+            "no PQC-capable cryptographic library identified in this component".to_owned(),
+        )
+    };
+    factors.push(AgilityFactor {
+        name: "dependencyPqcReady".into(),
+        points: dependency.0,
+        max: weights.dependency_pqc_ready,
+        reason: dependency.1,
+    });
+
+    let score = factors
+        .iter()
+        .map(|f| u32::from(f.points))
+        .sum::<u32>()
+        .min(100) as u8;
+    Agility { score, factors }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn priority(
+    exposure_index: f64,
+    index_kind: &str,
+    broken_now: bool,
+    classical: ClassicalStatus,
+    classical_reasons: &[String],
+    mosca: &Mosca,
+    context: &AssetContext,
+    quantum_breakability: f64,
+) -> (u8, Vec<String>) {
+    let mut reasons = vec![format!(
+        "{} exposure index {exposure_index:.1}",
+        index_kind.to_ascii_uppercase()
+    )];
+    let mut score = exposure_index;
+    if broken_now {
+        score = score.max(90.0);
+        reasons.push(format!(
+            "broken today, independent of Q-day: {}",
+            classical_reasons.first().map_or("", String::as_str)
+        ));
+    } else if classical == ClassicalStatus::Disallowed {
+        score = score.max(70.0);
+        reasons.push(format!(
+            "disallowed today: {}",
+            classical_reasons.first().map_or("", String::as_str)
+        ));
+    } else if classical == ClassicalStatus::Legacy {
+        score = score.max(35.0);
+        reasons.push(format!(
+            "legacy: {}",
+            classical_reasons.first().map_or("", String::as_str)
+        ));
+    }
+    if mosca.urgent {
+        score += 15.0;
+        reasons.push(format!("Mosca: {}", mosca.verdict));
+    }
+    if mosca.urgent_even_if_late {
+        score += 10.0;
+    }
+    if context.data.criticality == Criticality::Critical
+        && is_quantum_vulnerable(quantum_breakability)
+    {
+        score += 5.0;
+        reasons.push(format!("protects critical {} data", context.data.class));
+    }
+    if quantum_breakability == 0.0 && classical == ClassicalStatus::Acceptable {
+        score = score.min(5.0);
+        reasons.push("quantum-safe and classically sound: no action needed".into());
+    }
+    (score.clamp(0.0, 100.0).round() as u8, reasons)
+}
+
+/// Year from an RFC 3339 timestamp.
+fn year_of(timestamp: &str) -> Option<i32> {
+    timestamp.get(..4)?.parse().ok()
 }
 
 fn round2(value: f64) -> f64 {
@@ -208,59 +790,4 @@ fn round2(value: f64) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use lattice_core::{Algorithm, EvidenceGrade, Surface};
-    use std::collections::{BTreeMap, BTreeSet};
-
-    fn asset(family: &str, bits: Option<u32>, liveness: Liveness) -> CryptoAsset {
-        CryptoAsset {
-            id: "crypto/test".into(),
-            algorithm: Algorithm {
-                family: family.into(),
-                primitive: "test".into(),
-                key_size_bits: bits,
-                mode: None,
-                curve: None,
-            },
-            parameters: BTreeMap::new(),
-            locations: vec![],
-            surfaces: BTreeSet::from([Surface::Source]),
-            evidence: vec![],
-            liveness,
-            evidence_grade: EvidenceGrade::C,
-        }
-    }
-
-    #[test]
-    fn classifies_quantum_and_classical_risk() {
-        assert_eq!(quantum_breakability("RSA", Some(4096)), (1.0, false));
-        assert_eq!(quantum_breakability("SHA-1", None), (1.0, true));
-        assert_eq!(quantum_breakability("AES", Some(256)), (0.1, false));
-        assert_eq!(quantum_breakability("ML-KEM", None), (0.0, false));
-    }
-
-    #[test]
-    fn hndl_increases_with_liveness() {
-        let context = RiskContext {
-            data_secrecy_lifetime_years: 25.0,
-            exposure: Exposure::Internet,
-            ..RiskContext::default()
-        };
-        let capable = assess(&asset("RSA", Some(2048), Liveness::Capable), context);
-        let confirmed = assess(&asset("RSA", Some(2048), Liveness::Confirmed), context);
-        assert!(confirmed.hndl_index > capable.hndl_index);
-        assert_eq!(confirmed.hndl_index, 100.0);
-    }
-
-    #[test]
-    fn agility_weights_total_one_hundred() {
-        assert_eq!(agility_score(AgilityFactors {
-            provider_interface: true,
-            config_driven: true,
-            negotiation_layer: true,
-            centralized: true,
-            dependency_pqc_ready: true,
-        }), 100);
-    }
-}
+mod tests;
