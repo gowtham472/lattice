@@ -1,555 +1,1081 @@
-use anyhow::{anyhow, bail, Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
-use lattice_cbom::signing::{self, SigningError};
-use lattice_cbom::{build_bom, to_pretty_json, AssetContext, AssessedAsset, Bom, CryptoComponent};
-use lattice_classify::DataClassifier;
-use lattice_collectors::{
-    BinaryCollector, Collector, CollectionFailure, ConfigCollector, ScanOptions, SourceCollector,
-};
-use lattice_core::{normalize, CryptoAsset};
-use lattice_graph::CryptoGraph;
-use lattice_risk::{assess, AgilityFactors, Exposure, RiskContext};
-use std::collections::{BTreeMap, BTreeSet};
+//! `lattice`: the command-line front end to the LATTICE engine.
+//!
+//! Exit codes are a contract for pipelines:
+//! 0 success, 1 policy regression (ci), 2 usage or scan error, 3 verification failure.
+
+use anyhow::{Context, Result, bail};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use lattice_cbom::signing::{self, SignatureFile};
+use lattice_cbom::{Bom, render};
+use lattice_core::policy::Policy;
+use lattice_engine::compare::{self, ChangeKind};
+use lattice_engine::{Config, Report};
+use lattice_risk::Tier;
 use std::fs;
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use tracing::info;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing_subscriber::EnvFilter;
 
-/// `lattice ci` exit codes, matching the documented pipeline contract: 0 clean, 1 policy
-/// regression, 2 scan error, 3 verification failure.
-const EXIT_CLEAN: u8 = 0;
-const EXIT_POLICY_REGRESSION: u8 = 1;
-const EXIT_SCAN_ERROR: u8 = 2;
-const EXIT_VERIFICATION_FAILURE: u8 = 3;
+const EXIT_OK: u8 = 0;
+const EXIT_REGRESSION: u8 = 1;
+const EXIT_ERROR: u8 = 2;
+const EXIT_VERIFICATION: u8 = 3;
 
 #[derive(Debug, Parser)]
-#[command(name = "lattice", version, about = "Air-gapped cryptographic discovery and quantum-risk analysis")]
+#[command(
+    name = "lattice",
+    version,
+    about = "Cryptographic discovery, CBOM generation and quantum-risk assessment",
+    long_about = "Scans source code, binaries, certificates, keys and configuration without executing \
+                  or modifying anything, and without network access. Produces a CycloneDX 1.6 CBOM \
+                  and an explainable risk report."
+)]
 struct Cli {
+    /// Log verbosity (error, warn, info, debug, trace). Logs go to stderr.
+    #[arg(long, global = true, default_value = "warn", env = "LATTICE_LOG")]
+    log: String,
+
+    /// Process confinement (Landlock + seccomp on Linux) applied before reading untrusted
+    /// content: `required` refuses to run unconfined.
+    #[arg(long, global = true, value_enum, default_value_t = SandboxArg::BestEffort, env = "LATTICE_SANDBOX")]
+    sandbox: SandboxArg,
+
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Scan source code, native binaries, and configuration, then emit a deterministic CBOM.
+    /// Scan a target and write its CBOM and risk report.
     Scan(ScanArgs),
-    /// Re-scan a target and fail with a distinct exit code if it regresses against a baseline CBOM.
+    /// Scan a target and fail if it regresses against a baseline CBOM.
     Ci(CiArgs),
-    /// Generate an offline ML-DSA-65 keypair for signing CBOM reports.
+    /// Generate an ML-DSA-65 key pair for signing CBOMs.
     Keygen(KeygenArgs),
-    /// Hash-chain and sign an existing CBOM report in place.
+    /// Sign a CBOM, writing a detached signature next to it.
     Sign(SignArgs),
-    /// Verify a CBOM report's hash chain and ML-DSA-65 signature against a trusted public key.
+    /// Verify a CBOM against its detached signature and a trusted public key.
     Verify(VerifyArgs),
-}
-
-#[derive(Debug, clap::Args, Clone)]
-struct ScanPolicyArgs {
-    /// Fallback secrecy lifetime when no specific data-classification rule matches.
-    #[arg(long, default_value_t = 5.0)]
-    data_lifetime_years: f64,
-
-    /// External exposure applied until graph-derived exposure is available.
-    #[arg(long, value_enum, default_value_t = ExposureArg::Internal)]
-    exposure: ExposureArg,
-
-    /// Earliest policy-selected year for a cryptographically relevant quantum computer.
-    #[arg(long, default_value_t = 2035)]
-    q_day_year: u16,
-
-    /// Fixed assessment year, explicit to keep results reproducible.
-    #[arg(long, default_value_t = 2026)]
-    assessment_year: u16,
-
-    /// Per-file byte limit protecting the scanner from resource exhaustion.
-    #[arg(long, default_value_t = 16 * 1024 * 1024)]
-    max_file_bytes: u64,
-}
-
-#[derive(Debug, clap::Args)]
-struct ScanArgs {
-    /// File or directory to scan. The target is only read, never modified.
-    target: PathBuf,
-
-    /// CBOM destination, or '-' to write JSON to stdout.
-    #[arg(short, long, default_value = "lattice.cbom.json")]
-    output: PathBuf,
-
-    #[command(flatten)]
-    policy: ScanPolicyArgs,
-
-    /// Sign the resulting CBOM with this ML-DSA-65 private key file (hex-encoded).
-    #[arg(long, requires = "public_key")]
-    sign_with: Option<PathBuf>,
-
-    /// Public key file (hex-encoded) recorded alongside the signature; required with --sign-with.
-    #[arg(long)]
-    public_key: Option<PathBuf>,
-
-    /// Suppress the human-readable scan summary.
-    #[arg(long)]
-    quiet: bool,
-}
-
-#[derive(Debug, clap::Args)]
-struct CiArgs {
-    /// File or directory to scan. The target is only read, never modified.
-    target: PathBuf,
-
-    /// Previously captured CBOM to compare against.
-    #[arg(long)]
-    baseline: PathBuf,
-
-    /// Reject the baseline unless it carries a valid signature from this trusted public key file.
-    #[arg(long)]
-    trusted_public_key: Option<PathBuf>,
-
-    /// Write the current scan's CBOM to this path in addition to running the gate.
-    #[arg(long)]
-    output: Option<PathBuf>,
-
-    #[command(flatten)]
-    policy: ScanPolicyArgs,
-}
-
-#[derive(Debug, clap::Args)]
-struct KeygenArgs {
-    /// Directory to write lattice.ml-dsa65.pub and lattice.ml-dsa65.key into.
-    #[arg(long, default_value = ".")]
-    output_dir: PathBuf,
-}
-
-#[derive(Debug, clap::Args)]
-struct SignArgs {
-    /// CBOM report to sign in place.
-    report: PathBuf,
-
-    /// ML-DSA-65 private key file (hex-encoded), from `lattice keygen`.
-    #[arg(long)]
-    private_key: PathBuf,
-
-    /// ML-DSA-65 public key file (hex-encoded), recorded alongside the signature.
-    #[arg(long)]
-    public_key: PathBuf,
-}
-
-#[derive(Debug, clap::Args)]
-struct VerifyArgs {
-    /// CBOM report to verify.
-    report: PathBuf,
-
-    /// Trusted ML-DSA-65 public key file (hex-encoded). Never trust a key embedded in the report.
-    #[arg(long)]
-    public_key: PathBuf,
+    /// Validate a CBOM against the CycloneDX 1.6 schema and check its internal references.
+    Validate(ValidateArgs),
+    /// Serve the HTTP API and the cockpit.
+    Serve(ServeArgs),
+    /// Show what the sandbox enforces on this machine, by attempting forbidden operations.
+    SandboxCheck(SandboxCheckArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum ExposureArg {
-    Internet,
-    Partner,
-    Internal,
-    DeadCode,
+enum SandboxArg {
+    Required,
+    BestEffort,
+    Off,
 }
 
-impl From<ExposureArg> for Exposure {
-    fn from(value: ExposureArg) -> Self {
+impl SandboxArg {
+    fn flag(self) -> &'static str {
+        match self {
+            Self::Required => "required",
+            Self::BestEffort => "best-effort",
+            Self::Off => "off",
+        }
+    }
+}
+
+impl From<SandboxArg> for lattice_sandbox::Mode {
+    fn from(value: SandboxArg) -> Self {
         match value {
-            ExposureArg::Internet => Self::Internet,
-            ExposureArg::Partner => Self::Partner,
-            ExposureArg::Internal => Self::Internal,
-            ExposureArg::DeadCode => Self::DeadCode,
+            SandboxArg::Required => Self::Required,
+            SandboxArg::BestEffort => Self::BestEffort,
+            SandboxArg::Off => Self::Off,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct SandboxCheckArgs {
+    /// Print the results as JSON.
+    #[arg(long)]
+    json: bool,
+
+    /// Internal: run the probes in this (confined) process against READABLE WRITABLE OUTSIDE.
+    #[arg(long, hide = true, num_args = 3, value_names = ["READABLE", "WRITABLE", "OUTSIDE"])]
+    probe: Option<Vec<PathBuf>>,
+}
+
+#[derive(Debug, Args, Clone)]
+struct EngineArgs {
+    /// Risk policy TOML replacing the embedded one (see knowledge/policy.toml).
+    #[arg(long)]
+    policy: Option<PathBuf>,
+
+    /// Report timestamp as Unix seconds. Defaults to SOURCE_DATE_EPOCH, then the current time.
+    #[arg(long, env = "SOURCE_DATE_EPOCH")]
+    timestamp: Option<i64>,
+
+    /// Year Mosca's inequality is evaluated from. Defaults to the timestamp's year.
+    #[arg(long)]
+    assessment_year: Option<u16>,
+
+    /// Name recorded as the scanned system. Defaults to the target directory's name.
+    #[arg(long)]
+    subject: Option<String>,
+
+    /// Version recorded for the scanned system.
+    #[arg(long)]
+    subject_version: Option<String>,
+
+    /// Files larger than this many bytes are skipped and reported.
+    #[arg(long, default_value_t = 16 * 1024 * 1024)]
+    max_file_bytes: u64,
+
+    /// Per-file, per-collector time limit in seconds.
+    #[arg(long, default_value_t = 10)]
+    parse_timeout: u64,
+
+    /// Also scan vendored dependency trees (node_modules, vendor, ...).
+    #[arg(long)]
+    include_dependencies: bool,
+
+    /// Container image archives, tarballs and packet captures larger than this are skipped.
+    #[arg(long, default_value_t = 16 * 1024 * 1024 * 1024)]
+    max_archive_bytes: u64,
+
+    /// Time limit in seconds for one archive or capture.
+    #[arg(long, default_value_t = 900)]
+    archive_timeout: u64,
+}
+
+#[derive(Debug, Args)]
+struct ScanArgs {
+    /// Directory or file to scan. It is only read.
+    target: PathBuf,
+
+    /// CBOM destination, or '-' for stdout.
+    #[arg(short, long, default_value = "lattice.cbom.json")]
+    output: PathBuf,
+
+    /// Explainable report destination (every score with its reasons).
+    #[arg(long, default_value = "lattice.report.json")]
+    report: PathBuf,
+
+    /// Also write the crypto graph (nodes and edges) as JSON.
+    #[arg(long)]
+    graph: Option<PathBuf>,
+
+    /// Sign the CBOM with this private key (from `lattice keygen`).
+    #[arg(long, requires = "public_key")]
+    sign_with: Option<PathBuf>,
+
+    /// Public key matching --sign-with.
+    #[arg(long)]
+    public_key: Option<PathBuf>,
+
+    /// How many assets the summary lists.
+    #[arg(long, default_value_t = 15)]
+    top: usize,
+
+    /// Print nothing on success.
+    #[arg(short, long)]
+    quiet: bool,
+
+    #[command(flatten)]
+    engine: EngineArgs,
+}
+
+#[derive(Debug, Args)]
+struct CiArgs {
+    /// Directory or file to scan.
+    target: PathBuf,
+
+    /// CBOM to compare against.
+    #[arg(long)]
+    baseline: PathBuf,
+
+    /// Require the baseline to carry a valid signature from this public key.
+    #[arg(long)]
+    trusted_key: Option<PathBuf>,
+
+    /// Fail on new or worsened assets at or above this tier.
+    #[arg(long, value_enum, default_value_t = TierArg::High)]
+    fail_on: TierArg,
+
+    /// Also write the current CBOM here.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+
+    /// Write the comparison as JSON here.
+    #[arg(long)]
+    changes: Option<PathBuf>,
+
+    #[command(flatten)]
+    engine: EngineArgs,
+}
+
+#[derive(Debug, Args)]
+struct KeygenArgs {
+    /// Directory for lattice-signing.pub and lattice-signing.key.
+    #[arg(long, default_value = ".")]
+    out_dir: PathBuf,
+
+    /// File name stem.
+    #[arg(long, default_value = "lattice-signing")]
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct SignArgs {
+    /// CBOM to sign.
+    cbom: PathBuf,
+
+    #[arg(long)]
+    key: PathBuf,
+
+    #[arg(long)]
+    public_key: PathBuf,
+
+    /// Signature destination. Defaults to <cbom>.sig.json.
+    #[arg(long)]
+    signature: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct VerifyArgs {
+    /// CBOM to verify.
+    cbom: PathBuf,
+
+    /// The trusted public key. Never taken from the CBOM or the signature file.
+    #[arg(long)]
+    public_key: PathBuf,
+
+    /// Signature file. Defaults to <cbom>.sig.json.
+    #[arg(long)]
+    signature: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct ValidateArgs {
+    cbom: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct ServeArgs {
+    /// Address to listen on. Anything other than loopback requires --token.
+    #[arg(long, default_value = "127.0.0.1:7443")]
+    bind: std::net::SocketAddr,
+
+    /// A directory scans may read, as NAME=PATH. Repeatable. Scans can never leave these.
+    #[arg(long = "root", value_name = "NAME=PATH", required = true, value_parser = parse_root)]
+    roots: Vec<(String, PathBuf)>,
+
+    /// Bearer token for the API. Required when not bound to loopback.
+    #[arg(long, env = "LATTICE_TOKEN", hide_env_values = true)]
+    token: Option<String>,
+
+    /// Where scan history and artefacts are kept.
+    #[arg(long, default_value = ".lattice")]
+    data_dir: PathBuf,
+
+    /// Built cockpit directory (cockpit/dist).
+    #[arg(long)]
+    ui: Option<PathBuf>,
+
+    /// Risk policy TOML replacing the embedded one.
+    #[arg(long)]
+    policy: Option<PathBuf>,
+
+    /// Files larger than this many bytes are skipped and reported.
+    #[arg(long, default_value_t = 16 * 1024 * 1024)]
+    max_file_bytes: u64,
+
+    /// Per-file, per-collector time limit in seconds.
+    #[arg(long, default_value_t = 10)]
+    parse_timeout: u64,
+
+    /// Container image archives, tarballs and packet captures larger than this are skipped.
+    #[arg(long, default_value_t = 16 * 1024 * 1024 * 1024)]
+    max_archive_bytes: u64,
+
+    /// Time limit in seconds for one archive or capture.
+    #[arg(long, default_value_t = 900)]
+    archive_timeout: u64,
+}
+
+fn parse_root(value: &str) -> Result<(String, PathBuf), String> {
+    let (name, path) = value.split_once('=').ok_or("expected NAME=PATH")?;
+    if name.is_empty() || path.is_empty() {
+        return Err("expected NAME=PATH".into());
+    }
+    Ok((name.to_owned(), PathBuf::from(path)))
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TierArg {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl From<TierArg> for Tier {
+    fn from(value: TierArg) -> Self {
+        match value {
+            TierArg::Low => Tier::Low,
+            TierArg::Medium => Tier::Medium,
+            TierArg::High => Tier::High,
+            TierArg::Critical => Tier::Critical,
         }
     }
 }
 
 fn main() -> ExitCode {
+    let cli = Cli::parse();
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
-        .with_writer(io::stderr)
+        .with_env_filter(EnvFilter::try_new(&cli.log).unwrap_or_else(|_| EnvFilter::new("warn")))
+        .with_writer(std::io::stderr)
         .init();
 
-    let result = match Cli::parse().command {
-        Command::Scan(args) => scan(args).map(|()| ExitCode::SUCCESS),
-        Command::Ci(args) => ci(args),
-        Command::Keygen(args) => keygen(args).map(|()| ExitCode::SUCCESS),
-        Command::Sign(args) => sign_cmd(args).map(|()| ExitCode::SUCCESS),
-        Command::Verify(args) => verify_cmd(args),
+    let sandbox = lattice_sandbox::Mode::from(cli.sandbox);
+    let result = match cli.command {
+        Command::Scan(args) => scan(args, sandbox),
+        Command::Ci(args) => ci(args, sandbox),
+        Command::Keygen(args) => keygen(args).map(|()| EXIT_OK),
+        Command::Sign(args) => sign(args).map(|()| EXIT_OK),
+        Command::Verify(args) => verify(args, sandbox),
+        Command::Validate(args) => validate(args, sandbox),
+        Command::Serve(args) => serve(args, sandbox).map(|()| EXIT_OK),
+        Command::SandboxCheck(args) => sandbox_check(args, cli.sandbox),
     };
-
     match result {
-        Ok(code) => code,
+        Ok(code) => ExitCode::from(code),
         Err(error) => {
-            eprintln!("error: {error:?}");
-            ExitCode::FAILURE
+            eprintln!("lattice: {error:#}");
+            ExitCode::from(EXIT_ERROR)
         }
     }
 }
 
-struct ScanSummary {
-    source_files_scanned: u64,
-    binary_files_scanned: u64,
-    config_files_scanned: u64,
-    failures: Vec<CollectionFailure>,
-}
+// ---- scan ---------------------------------------------------------------------------------
 
-fn run_scan(target: &Path, policy: &ScanPolicyArgs) -> Result<(Bom, ScanSummary)> {
-    validate_policy_args(policy)?;
-    let source_collector =
-        SourceCollector::from_embedded_rules().context("failed to initialize source collector")?;
-    let scan_options = ScanOptions { max_file_bytes: policy.max_file_bytes };
-    info!(target = %target.display(), "starting offline scan");
-    let mut result = source_collector
-        .collect(target, &scan_options)
-        .context("source collection failed")?;
-    let source_files_scanned = result.files_scanned;
-
-    let binary_result = BinaryCollector
-        .collect(target, &scan_options)
-        .context("binary collection failed")?;
-    let binary_files_scanned = binary_result.files_scanned;
-    result.observations.extend(binary_result.observations);
-    result.failures.extend(binary_result.failures);
-
-    let config_result = ConfigCollector::new()
-        .context("failed to initialize configuration collector")?
-        .collect(target, &scan_options)
-        .context("configuration collection failed")?;
-    let config_files_scanned = config_result.files_scanned;
-    result.observations.extend(config_result.observations);
-    result.failures.extend(config_result.failures);
-
-    let assets = normalize(result.observations);
-    let classifier =
-        DataClassifier::from_embedded_policy().context("failed to initialize data classifier")?;
-    let mut classifications = assets
-        .iter()
-        .map(|asset| (asset.id.clone(), classifier.classify(asset, Some(policy.data_lifetime_years))))
-        .collect::<BTreeMap<_, _>>();
-    let exposure: Exposure = policy.exposure.into();
-    let graph = CryptoGraph::build(&assets, &classifications, exposure.weight());
-
-    let assessed = assets
-        .into_iter()
-        .map(|asset| {
-            let graph_context = graph
-                .asset_context(&asset.id)
-                .expect("every normalized asset is represented in the graph");
-            let classification = classifications
-                .remove(&asset.id)
-                .expect("every normalized asset is classified");
-            let context = RiskContext {
-                data_secrecy_lifetime_years: graph_context.secrecy_lifetime_years,
-                exposure,
-                assessment_year: policy.assessment_year,
-                q_day_year: policy.q_day_year,
-                agility: infer_agility(&asset),
-            };
-            let risk = assess(&asset, context);
-            AssessedAsset {
-                asset,
-                risk,
-                context: AssetContext {
-                    protected_data_ids: graph_context.protected_data_ids,
-                    classifications: graph_context.classifications,
-                    business_criticality: graph_context.business_criticality,
-                    reachable_from: graph_context.reachable_from,
-                    classifier_rule: classification.rule_id,
-                    classifier_confidence: classification.confidence,
-                    classifier_explanation: classification.explanation,
-                },
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let bom = build_bom(assessed);
-    Ok((
-        bom,
-        ScanSummary {
-            source_files_scanned,
-            binary_files_scanned,
-            config_files_scanned,
-            failures: result.failures,
-        },
-    ))
-}
-
-fn scan(args: ScanArgs) -> Result<()> {
-    let (mut bom, summary) = run_scan(&args.target, &args.policy)?;
-    let asset_count = bom.components.len();
-    let urgent_count = bom.components.iter().filter(|item| item.lattice.mosca_urgent).count();
-    let broken_count = bom.components.iter().filter(|item| item.lattice.broken_now).count();
-
-    if let Some(private_key_path) = &args.sign_with {
-        let public_key_path = args
-            .public_key
-            .as_ref()
-            .expect("clap enforces --public-key alongside --sign-with");
-        let private_key = read_hex_file(private_key_path)?;
-        let public_key = read_hex_file(public_key_path)?;
-        signing::sign_bom(&mut bom, &private_key, &public_key)
-            .map_err(|error| anyhow!("failed to sign CBOM: {error}"))?;
+fn engine_config(args: &EngineArgs) -> Result<Config> {
+    let timestamp = match args.timestamp {
+        Some(timestamp) => timestamp,
+        None => SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .context("system clock is before 1970")?
+            .as_secs() as i64,
+    };
+    let mut config = Config::new(timestamp);
+    if let Some(path) = &args.policy {
+        let text = fs::read_to_string(path)
+            .with_context(|| format!("reading policy {}", path.display()))?;
+        config.policy = Policy::from_toml(&text)
+            .with_context(|| format!("invalid policy {}", path.display()))?;
     }
-
-    let json = to_pretty_json(&bom).context("failed to serialize CBOM")?;
-    if args.output.as_os_str() == "-" {
-        io::stdout().write_all(json.as_bytes()).context("failed to write CBOM to stdout")?;
-    } else {
-        write_report(&args.output, json.as_bytes())?;
+    if let Some(year) = args.assessment_year {
+        config.assessment_year = year;
     }
-
-    if !args.quiet {
-        eprintln!(
-            "LATTICE scan complete: {} source files, {} binaries, and {} configs scanned; {} assets, {} Mosca-urgent, {} broken today, {} recoverable file errors",
-            summary.source_files_scanned,
-            summary.binary_files_scanned,
-            summary.config_files_scanned,
-            asset_count,
-            urgent_count,
-            broken_count,
-            summary.failures.len(),
+    if config.assessment_year > config.policy.q_day.latest_year {
+        bail!(
+            "assessment year {} is after the policy's latest Q-day {}; update the policy",
+            config.assessment_year,
+            config.policy.q_day.latest_year
         );
-        print_failures(&summary.failures);
     }
-    Ok(())
+    config.subject = args.subject.clone();
+    config.subject_version = args.subject_version.clone();
+    config.scan.max_file_bytes = args.max_file_bytes;
+    config.scan.parse_timeout = Duration::from_secs(args.parse_timeout.max(1));
+    config.scan.include_dependencies = args.include_dependencies;
+    config.scan.max_archive_bytes = args.max_archive_bytes;
+    config.scan.archive_timeout = Duration::from_secs(args.archive_timeout.max(1));
+    Ok(config)
 }
 
-fn ci(args: CiArgs) -> Result<ExitCode> {
-    let (current_bom, summary) = match run_scan(&args.target, &args.policy) {
-        Ok(value) => value,
-        Err(error) => {
-            eprintln!("scan error: {error:?}");
-            return Ok(ExitCode::from(EXIT_SCAN_ERROR));
-        }
-    };
-
-    let baseline_bytes = match fs::read_to_string(&args.baseline) {
-        Ok(contents) => contents,
-        Err(error) => {
-            eprintln!("scan error: failed to read baseline {}: {error}", args.baseline.display());
-            return Ok(ExitCode::from(EXIT_SCAN_ERROR));
-        }
-    };
-    let baseline_bom: Bom = match serde_json::from_str(&baseline_bytes) {
-        Ok(bom) => bom,
-        Err(error) => {
-            eprintln!("scan error: baseline {} is not a valid CBOM: {error}", args.baseline.display());
-            return Ok(ExitCode::from(EXIT_SCAN_ERROR));
-        }
-    };
-
-    if let Some(trusted_key_path) = &args.trusted_public_key {
-        let trusted_key = read_hex_file(trusted_key_path)?;
-        if let Err(error) = signing::verify_bom(&baseline_bom, &trusted_key) {
-            eprintln!("verification failure: baseline signature is not valid: {error}");
-            return Ok(ExitCode::from(EXIT_VERIFICATION_FAILURE));
-        }
-        eprintln!("baseline signature verified against {}", trusted_key_path.display());
+/// Confines the process: `read` stay readable, and the directories holding `write` become the
+/// only writable places. Those directories are created first, since nothing can be created
+/// outside them afterwards.
+fn confine(
+    mode: lattice_sandbox::Mode,
+    read: &[&Path],
+    write: &[&Path],
+) -> Result<lattice_sandbox::Report> {
+    let mut plan = lattice_sandbox::Plan::default();
+    for path in read {
+        let resolved = path
+            .canonicalize()
+            .with_context(|| format!("resolving {}", path.display()))?;
+        plan.read.push(resolved);
     }
-
-    if let Some(output_path) = &args.output {
-        let json = to_pretty_json(&current_bom).context("failed to serialize CBOM")?;
-        write_report(output_path, json.as_bytes())?;
+    for path in write {
+        let directory = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        fs::create_dir_all(directory)
+            .with_context(|| format!("creating {}", directory.display()))?;
+        plan.write.push(directory.canonicalize()?);
     }
+    let report = lattice_sandbox::apply(&plan, mode)?;
+    tracing::info!(sandbox = %report.summary(), "process confined");
+    Ok(report)
+}
 
-    let regressions = find_regressions(&baseline_bom.components, &current_bom.components);
-    print_failures(&summary.failures);
+fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    if !args.target.exists() {
+        bail!("{} does not exist", args.target.display());
+    }
+    let config = engine_config(&args.engine)?;
+    let to_stdout = args.output.as_os_str() == "-";
+    if to_stdout && args.sign_with.is_some() {
+        bail!("--sign-with needs a CBOM file, not stdout");
+    }
+    // keys are read before confinement: the key files stay out of the sandbox's reach
+    let keys = match &args.sign_with {
+        Some(key) => {
+            let public_key = args
+                .public_key
+                .as_ref()
+                .expect("clap enforces --public-key");
+            Some(load_keys(key, public_key)?)
+        }
+        None => None,
+    };
+    let signature_file = signature_path(&args.output, None);
+    let mut outputs: Vec<&Path> = vec![&args.report];
+    if !to_stdout {
+        outputs.push(&args.output);
+    }
+    if let Some(graph) = &args.graph {
+        outputs.push(graph);
+    }
+    if keys.is_some() {
+        outputs.push(&signature_file);
+    }
+    let confinement = confine(sandbox, &[&args.target], &outputs)?;
 
-    if regressions.is_empty() {
-        eprintln!(
-            "lattice ci: clean. {} assets compared against baseline {}.",
-            current_bom.components.len(),
-            args.baseline.display()
-        );
-        Ok(ExitCode::from(EXIT_CLEAN))
+    let outcome = lattice_engine::run(&args.target, &config)?;
+    let cbom = render(&outcome.cbom);
+    if to_stdout {
+        std::io::stdout()
+            .write_all(&cbom)
+            .context("writing the CBOM to stdout")?;
     } else {
-        eprintln!("lattice ci: {} policy regression(s) found:", regressions.len());
-        for regression in &regressions {
-            eprintln!(
-                "  NEW {} ({}, primitive {}): quantumBreakability={:.2} brokenNow={} evidenceGrade={:?} at {}",
-                regression.bom_ref,
-                regression.name,
-                regression.primitive,
-                regression.quantum_breakability,
-                regression.broken_now,
-                regression.evidence_grade,
-                regression.first_location,
-            );
+        write_atomic(&args.output, &cbom)?;
+    }
+    write_atomic(&args.report, &pretty(&outcome.report)?)?;
+    if let Some(path) = &args.graph {
+        write_atomic(path, &pretty(&outcome.graph)?)?;
+    }
+    if let Some((private, public)) = &keys {
+        let signature = signing::sign(&cbom, private, public)?;
+        write_atomic(&signature_file, &pretty(&signature)?)?;
+    }
+    if !args.quiet && !to_stdout {
+        print_summary(&outcome.report, args.top);
+        println!();
+        println!("CBOM    {}", args.output.display());
+        println!("report  {}", args.report.display());
+        if let Some(path) = &args.graph {
+            println!("graph   {}", path.display());
         }
-        Ok(ExitCode::from(EXIT_POLICY_REGRESSION))
-    }
-}
-
-struct Regression {
-    bom_ref: String,
-    name: String,
-    primitive: String,
-    quantum_breakability: f64,
-    broken_now: bool,
-    evidence_grade: lattice_core::EvidenceGrade,
-    first_location: String,
-}
-
-/// A regression is newly observed cryptography, absent from the baseline, that is already
-/// broken today or breakable by a sufficiently capable quantum adversary (QB >= 0.5).
-fn find_regressions(baseline: &[CryptoComponent], current: &[CryptoComponent]) -> Vec<Regression> {
-    let baseline_refs: BTreeSet<&str> = baseline.iter().map(|item| item.bom_ref.as_str()).collect();
-    let mut regressions = current
-        .iter()
-        .filter(|item| !baseline_refs.contains(item.bom_ref.as_str()))
-        .filter(|item| item.lattice.broken_now || item.lattice.quantum_breakability >= 0.5)
-        .map(|item| Regression {
-            bom_ref: item.bom_ref.clone(),
-            name: item.name.clone(),
-            primitive: item.crypto_properties.algorithm_properties.primitive.clone(),
-            quantum_breakability: item.lattice.quantum_breakability,
-            broken_now: item.lattice.broken_now,
-            evidence_grade: item.lattice.evidence_grade,
-            first_location: item
-                .evidence
-                .occurrences
-                .first()
-                .map_or_else(|| "unknown".to_owned(), |occurrence| occurrence.location.clone()),
-        })
-        .collect::<Vec<_>>();
-    regressions.sort_by(|a, b| a.bom_ref.cmp(&b.bom_ref));
-    regressions
-}
-
-fn keygen(args: KeygenArgs) -> Result<()> {
-    fs::create_dir_all(&args.output_dir)
-        .with_context(|| format!("failed to create {}", args.output_dir.display()))?;
-    let (public_key, private_key) =
-        signing::generate_keypair().map_err(|error| anyhow!("key generation failed: {error}"))?;
-
-    let public_path = args.output_dir.join("lattice.ml-dsa65.pub");
-    let private_path = args.output_dir.join("lattice.ml-dsa65.key");
-    fs::write(&public_path, hex::encode(public_key))
-        .with_context(|| format!("failed to write {}", public_path.display()))?;
-    fs::write(&private_path, hex::encode(private_key))
-        .with_context(|| format!("failed to write {}", private_path.display()))?;
-
-    eprintln!("Generated ML-DSA-65 keypair:");
-    eprintln!("  public key:  {}", public_path.display());
-    eprintln!("  private key: {} (keep this offline and access-controlled)", private_path.display());
-    Ok(())
-}
-
-fn sign_cmd(args: SignArgs) -> Result<()> {
-    let contents = fs::read_to_string(&args.report)
-        .with_context(|| format!("failed to read {}", args.report.display()))?;
-    let mut bom: Bom = serde_json::from_str(&contents)
-        .with_context(|| format!("{} is not a valid CBOM", args.report.display()))?;
-
-    let private_key = read_hex_file(&args.private_key)?;
-    let public_key = read_hex_file(&args.public_key)?;
-    signing::sign_bom(&mut bom, &private_key, &public_key)
-        .map_err(|error| anyhow!("failed to sign CBOM: {error}"))?;
-
-    let json = to_pretty_json(&bom).context("failed to serialize signed CBOM")?;
-    write_report(&args.report, json.as_bytes())?;
-    eprintln!("Signed {} with ML-DSA-65.", args.report.display());
-    Ok(())
-}
-
-fn verify_cmd(args: VerifyArgs) -> Result<ExitCode> {
-    let contents = fs::read_to_string(&args.report)
-        .with_context(|| format!("failed to read {}", args.report.display()))?;
-    let bom: Bom = serde_json::from_str(&contents)
-        .with_context(|| format!("{} is not a valid CBOM", args.report.display()))?;
-    let trusted_key = read_hex_file(&args.public_key)?;
-
-    match signing::verify_bom(&bom, &trusted_key) {
-        Ok(()) => {
-            eprintln!("OK: {} verifies against {}.", args.report.display(), args.public_key.display());
-            Ok(ExitCode::SUCCESS)
+        if keys.is_some() {
+            println!("signed  {}", signature_file.display());
         }
-        Err(error) => {
-            eprintln!("FAILED: {} does not verify: {error}", args.report.display());
-            let code = match error {
-                SigningError::MissingSignature
-                | SigningError::ChainBroken(_)
-                | SigningError::SignatureInvalid
-                | SigningError::MalformedSignatureEncoding => EXIT_VERIFICATION_FAILURE,
-                _ => EXIT_SCAN_ERROR,
-            };
-            Ok(ExitCode::from(code))
-        }
+        println!("sandbox {}", confinement.summary());
     }
+    Ok(EXIT_OK)
 }
 
-fn validate_policy_args(policy: &ScanPolicyArgs) -> Result<()> {
-    if policy.data_lifetime_years < 0.0 || !policy.data_lifetime_years.is_finite() {
-        bail!("--data-lifetime-years must be a finite, non-negative number");
-    }
-    if policy.q_day_year < policy.assessment_year {
-        bail!("--q-day-year cannot be earlier than --assessment-year");
-    }
-    if policy.max_file_bytes == 0 {
-        bail!("--max-file-bytes must be greater than zero");
-    }
-    Ok(())
-}
-
-fn infer_agility(asset: &CryptoAsset) -> AgilityFactors {
-    let tokens = asset
-        .evidence
-        .iter()
-        .map(|evidence| evidence.matched_token.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    let provider_interface = tokens.iter().any(|token| {
-        token.contains("evp_")
-            || token.contains("getinstance")
-            || token.contains("aesgcm")
-            || token.contains("chacha20poly1305")
-    });
-    let negotiation_layer = tokens.iter().any(|token| token.contains("tls") || token.contains("ssl"));
-    let dependency_pqc_ready = matches!(
-        asset.algorithm.family.to_ascii_uppercase().as_str(),
-        "ML-KEM" | "ML-DSA" | "SLH-DSA"
+fn print_summary(report: &Report, top: usize) {
+    let s = &report.summary;
+    println!(
+        "LATTICE {}  {}  ({})",
+        report.provenance.tool_version, report.subject, report.generated
     );
-    AgilityFactors {
-        provider_interface,
-        config_driven: false,
-        negotiation_layer,
-        centralized: asset.locations.len() == 1,
-        dependency_pqc_ready,
-    }
-}
-
-fn print_failures(failures: &[CollectionFailure]) {
-    if failures.is_empty() {
+    println!(
+        "scanned {} files ({} bytes); {} failed; graph: {} functions, {} entry points",
+        report.stats.files_scanned,
+        report.stats.bytes_scanned,
+        report.failures.len(),
+        report.graph.functions,
+        report.graph.entry_points
+    );
+    println!(
+        "{} assets: {} quantum-vulnerable, {} broken today, {} Mosca-urgent, {} critical, {} high",
+        s.assets, s.quantum_vulnerable, s.broken_now, s.mosca_urgent, s.critical, s.high
+    );
+    if report.assets.is_empty() {
         return;
     }
-    eprintln!("Partial-result warnings:");
-    for failure in failures.iter().take(10) {
-        eprintln!("  {}: {}", failure.path, failure.reason);
+    println!();
+    println!(
+        "{:<9} {:>4}  {:<28} {:<34} RECOMMENDATION",
+        "TIER", "PRI", "ASSET", "WHERE"
+    );
+    for asset in report.assets.iter().take(top) {
+        let location = asset
+            .asset
+            .occurrences
+            .first()
+            .map(|o| o.location.short())
+            .unwrap_or_default();
+        println!(
+            "{:<9} {:>4}  {:<28} {:<34} {} {}",
+            asset.assessment.tier.as_str(),
+            asset.assessment.priority,
+            clip(&asset.asset.finding.display_name(), 28),
+            clip(&location, 34),
+            asset.recommendation.action,
+            asset.recommendation.target
+        );
     }
-    if failures.len() > 10 {
-        eprintln!("  ... and {} more", failures.len() - 10);
+    if report.assets.len() > top {
+        println!("... {} more in the report", report.assets.len() - top);
+    }
+    let mut waves = [0usize; 5];
+    for item in &report.roadmap {
+        waves[usize::from(item.wave.min(4))] += 1;
+    }
+    println!();
+    println!(
+        "roadmap: wave 1 {} | wave 2 {} | wave 3 {} | wave 4 {}",
+        waves[1], waves[2], waves[3], waves[4]
+    );
+    for failure in report.failures.iter().take(5) {
+        println!(
+            "warning: {} ({}): {}",
+            failure.path, failure.collector, failure.reason
+        );
     }
 }
 
-fn read_hex_file(path: &Path) -> Result<Vec<u8>> {
-    let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    hex::decode(contents.trim())
-        .with_context(|| format!("{} does not contain valid hex-encoded key material", path.display()))
+fn clip(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_owned();
+    }
+    let mut clipped: String = text.chars().take(width - 1).collect();
+    clipped.push('…');
+    clipped
 }
 
-fn write_report(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create output directory {}", parent.display()))?;
+// ---- ci -----------------------------------------------------------------------------------
+
+fn ci(args: CiArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    let baseline_bytes =
+        fs::read(&args.baseline).with_context(|| format!("reading {}", args.baseline.display()))?;
+    if let Some(key) = &args.trusted_key
+        && let Err(error) = verify_bytes(&baseline_bytes, &args.baseline, None, key)
+    {
+        eprintln!(
+            "lattice: baseline {} failed verification: {error:#}",
+            args.baseline.display()
+        );
+        return Ok(EXIT_VERIFICATION);
     }
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, bytes)
-        .with_context(|| format!("failed to write temporary report {}", temporary.display()))?;
-    if path.exists() {
-        fs::remove_file(path)
-            .with_context(|| format!("failed to replace existing report {}", path.display()))?;
+    if !args.target.exists() {
+        bail!("{} does not exist", args.target.display());
     }
-    fs::rename(&temporary, path)
-        .with_context(|| format!("failed to finalize report {}", path.display()))?;
+    let config = engine_config(&args.engine)?;
+    let outputs: Vec<&Path> = [args.output.as_deref(), args.changes.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect();
+    confine(sandbox, &[&args.target], &outputs)?;
+
+    let baseline: Bom = serde_json::from_slice(&baseline_bytes)
+        .with_context(|| format!("{} is not a LATTICE CBOM", args.baseline.display()))?;
+    let outcome = lattice_engine::run(&args.target, &config)?;
+    if let Some(path) = &args.output {
+        write_atomic(path, &render(&outcome.cbom))?;
+    }
+    let comparison = compare::compare(&baseline, &outcome.cbom, args.fail_on.into());
+    if let Some(path) = &args.changes {
+        write_atomic(path, &pretty(&comparison)?)?;
+    }
+
+    for change in &comparison.changes {
+        let marker = if change.regression { "FAIL" } else { "    " };
+        let kind = match change.kind {
+            ChangeKind::Added => "added",
+            ChangeKind::Worsened => "worsened",
+            ChangeKind::Improved => "improved",
+            ChangeKind::Removed => "removed",
+        };
+        println!(
+            "{marker} {kind:<9} {:<28} {:<24} {}",
+            clip(&change.name, 28),
+            clip(&change.component, 24),
+            change.reason
+        );
+    }
+    let regressions = comparison.regressions().count();
+    if regressions == 0 {
+        println!(
+            "lattice ci: passed ({} changes, none at or above {})",
+            comparison.changes.len(),
+            comparison.threshold.as_str()
+        );
+        Ok(EXIT_OK)
+    } else {
+        println!(
+            "lattice ci: {regressions} regression(s) at or above {}",
+            comparison.threshold.as_str()
+        );
+        Ok(EXIT_REGRESSION)
+    }
+}
+
+// ---- keys and signatures ------------------------------------------------------------------
+
+fn keygen(args: KeygenArgs) -> Result<()> {
+    let public_path = args.out_dir.join(format!("{}.pub", args.name));
+    let private_path = args.out_dir.join(format!("{}.key", args.name));
+    for path in [&public_path, &private_path] {
+        if path.exists() {
+            bail!(
+                "{} already exists; refusing to overwrite a key",
+                path.display()
+            );
+        }
+    }
+    let keys = signing::generate_keypair()?;
+    write_private(
+        &private_path,
+        signing::encode_private_key(&keys.private_key).as_bytes(),
+    )?;
+    write_atomic(
+        &public_path,
+        signing::encode_public_key(&keys.public_key).as_bytes(),
+    )?;
+    println!("key id   {}", signing::key_id(&keys.public_key));
+    println!("public   {}", public_path.display());
+    println!(
+        "private  {} (keep offline; owner-only permissions)",
+        private_path.display()
+    );
     Ok(())
+}
+
+fn load_keys(key: &Path, public_key: &Path) -> Result<(Vec<u8>, Vec<u8>)> {
+    let private = signing::decode_private_key(&read_text(key)?)?;
+    let public = signing::decode_public_key(&read_text(public_key)?)?;
+    Ok((private, public))
+}
+
+fn sign_bytes(document: &[u8], key: &Path, public_key: &Path) -> Result<SignatureFile> {
+    let (private, public) = load_keys(key, public_key)?;
+    Ok(signing::sign(document, &private, &public)?)
+}
+
+fn sign(args: SignArgs) -> Result<()> {
+    let document =
+        fs::read(&args.cbom).with_context(|| format!("reading {}", args.cbom.display()))?;
+    let signature = sign_bytes(&document, &args.key, &args.public_key)?;
+    let path = signature_path(&args.cbom, args.signature.as_deref());
+    write_atomic(&path, &pretty(&signature)?)?;
+    println!(
+        "signed {} ({} components) -> {}",
+        args.cbom.display(),
+        signature.chain.len(),
+        path.display()
+    );
+    Ok(())
+}
+
+fn verify_bytes(
+    document: &[u8],
+    cbom: &Path,
+    signature: Option<&Path>,
+    public_key: &Path,
+) -> Result<SignatureFile> {
+    let path = signature_path(cbom, signature);
+    let signature: SignatureFile = serde_json::from_str(&read_text(&path)?)
+        .with_context(|| format!("{} is not a LATTICE signature file", path.display()))?;
+    let trusted = signing::decode_public_key(&read_text(public_key)?)?;
+    signing::verify(document, &signature, &trusted)?;
+    Ok(signature)
+}
+
+fn verify(args: VerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    let document =
+        fs::read(&args.cbom).with_context(|| format!("reading {}", args.cbom.display()))?;
+    let signature_file = signature_path(&args.cbom, args.signature.as_deref());
+    let signature_text = read_text(&signature_file)?;
+    let key_text = read_text(&args.public_key)?;
+    // everything is in memory: the parsing and verification below need no filesystem at all
+    confine(sandbox, &[], &[])?;
+    let checked = (|| -> Result<SignatureFile> {
+        let signature: SignatureFile =
+            serde_json::from_str(&signature_text).with_context(|| {
+                format!(
+                    "{} is not a LATTICE signature file",
+                    signature_file.display()
+                )
+            })?;
+        let trusted = signing::decode_public_key(&key_text)?;
+        signing::verify(&document, &signature, &trusted)?;
+        Ok(signature)
+    })();
+    match checked {
+        Ok(signature) => {
+            println!(
+                "verified {}: {} components, signed by key {} ({})",
+                args.cbom.display(),
+                signature.chain.len(),
+                signature.key_id,
+                signature.algorithm
+            );
+            Ok(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!(
+                "lattice: verification FAILED for {}: {error:#}",
+                args.cbom.display()
+            );
+            Ok(EXIT_VERIFICATION)
+        }
+    }
+}
+
+fn validate(args: ValidateArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    let text = read_text(&args.cbom)?;
+    confine(sandbox, &[], &[])?;
+    let document: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not JSON", args.cbom.display()))?;
+    let mut violations = Vec::new();
+    if let Err(found) = lattice_cbom::validate::validate(&document) {
+        violations.extend(found);
+    }
+    if let Err(found) = lattice_cbom::validate::check_references(&document) {
+        violations.extend(found);
+    }
+    if violations.is_empty() {
+        println!("{}: valid CycloneDX 1.6", args.cbom.display());
+        return Ok(EXIT_OK);
+    }
+    for violation in &violations {
+        eprintln!("{violation}");
+    }
+    eprintln!("{}: {} violation(s)", args.cbom.display(), violations.len());
+    Ok(EXIT_VERIFICATION)
+}
+
+// ---- serve -------------------------------------------------------------------------------
+
+fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
+    let mut engine = Config::new(0);
+    if let Some(path) = &args.policy {
+        let text = fs::read_to_string(path)
+            .with_context(|| format!("reading policy {}", path.display()))?;
+        engine.policy = Policy::from_toml(&text)
+            .with_context(|| format!("invalid policy {}", path.display()))?;
+    }
+    engine.scan.max_file_bytes = args.max_file_bytes;
+    engine.scan.parse_timeout = Duration::from_secs(args.parse_timeout.max(1));
+    engine.scan.max_archive_bytes = args.max_archive_bytes;
+    engine.scan.archive_timeout = Duration::from_secs(args.archive_timeout.max(1));
+    let ui = args.ui.or_else(installed_cockpit);
+    if ui.is_none() {
+        eprintln!(
+            "lattice: cockpit not found (build it with `npm run build` in cockpit/ or pass --ui); serving the API only"
+        );
+    }
+    fs::create_dir_all(&args.data_dir)
+        .with_context(|| format!("creating {}", args.data_dir.display()))?;
+    let mut config = lattice_server::ServerConfig {
+        bind: args.bind,
+        roots: args.roots,
+        token: args.token,
+        data_dir: Some(args.data_dir.clone()),
+        ui_dir: ui,
+        engine,
+        sandbox: None,
+    };
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("starting the runtime")?;
+    runtime.block_on(async {
+        let listener = lattice_server::bind(config.bind).await?;
+        // confined once listening: the roots and the cockpit are read-only, the data directory
+        // is the only writable place, and no new socket can be opened again
+        let mut read: Vec<&Path> = config
+            .roots
+            .iter()
+            .map(|(_, path)| path.as_path())
+            .collect();
+        if let Some(ui) = &config.ui_dir {
+            read.push(ui);
+        }
+        let data = args.data_dir.join("scans");
+        let report = confine(sandbox, &read, &[&data])?;
+        println!(
+            "LATTICE cockpit on http://{} (sandbox: {})",
+            config.bind,
+            report.summary()
+        );
+        config.sandbox = Some(report);
+        lattice_server::serve_on(listener, config).await?;
+        Ok::<(), anyhow::Error>(())
+    })
+}
+
+/// The cockpit next to an installed binary (`<prefix>/bin/lattice` with
+/// `<prefix>/share/lattice/cockpit`), else a source checkout's build (`cockpit/dist`).
+fn installed_cockpit() -> Option<PathBuf> {
+    let installed = std::env::current_exe().ok().and_then(|exe| {
+        exe.parent()?
+            .parent()
+            .map(|prefix| prefix.join("share/lattice/cockpit"))
+    });
+    installed
+        .into_iter()
+        .chain([PathBuf::from("cockpit/dist")])
+        .find(|dir| dir.join("index.html").is_file())
+}
+
+// ---- sandbox check --------------------------------------------------------------------------
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Probe {
+    name: String,
+    layer: String,
+    /// What confinement should make of it: `allowed` or `denied`.
+    expected: String,
+    observed: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ProbeResult {
+    sandbox: serde_json::Value,
+    probes: Vec<Probe>,
+}
+
+fn sandbox_check(args: SandboxCheckArgs, mode: SandboxArg) -> Result<u8> {
+    if let Some(paths) = &args.probe {
+        return run_probes(&paths[0], &paths[1], &paths[2], mode.into());
+    }
+    // The probes run in a child that confines itself; this process stays free to clean up.
+    let base = std::env::temp_dir().join(format!("lattice-sandbox-check-{}", std::process::id()));
+    let (readable, writable, outside) = (
+        base.join("readable"),
+        base.join("writable"),
+        base.join("outside"),
+    );
+    for directory in [&readable, &writable, &outside] {
+        fs::create_dir_all(directory)?;
+    }
+    fs::write(readable.join("sample.txt"), b"readable")?;
+    fs::write(outside.join("secret.txt"), b"outside the sandbox")?;
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args(["--sandbox", mode.flag(), "sandbox-check", "--probe"])
+        .args([&readable, &writable, &outside])
+        .output()
+        .context("running the probe process")?;
+    let _ = fs::remove_dir_all(&base);
+    if !output.status.success() {
+        bail!(
+            "probe process failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let result: ProbeResult =
+        serde_json::from_slice(&output.stdout).context("reading probe results")?;
+    let failed = result
+        .probes
+        .iter()
+        .filter(|p| p.expected != p.observed)
+        .count();
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        let layer = |name: &str| {
+            let state = &result.sandbox[name];
+            match state["detail"].as_str() {
+                Some(detail) => format!("{} ({detail})", state["state"].as_str().unwrap_or("?")),
+                None => state["state"].as_str().unwrap_or("?").to_owned(),
+            }
+        };
+        println!("filesystem    {}", layer("filesystem"));
+        println!("system calls  {}", layer("syscalls"));
+        println!();
+        for probe in &result.probes {
+            let verdict = if probe.expected == probe.observed {
+                "ok  "
+            } else {
+                "FAIL"
+            };
+            println!(
+                "{verdict} {:<34} {:<12} expected {:<8} observed {}",
+                probe.name, probe.layer, probe.expected, probe.observed
+            );
+        }
+    }
+    Ok(if failed == 0 {
+        EXIT_OK
+    } else {
+        EXIT_VERIFICATION
+    })
+}
+
+/// Runs in the confined child: attempts each operation and records what the kernel allowed.
+fn run_probes(
+    readable: &Path,
+    writable: &Path,
+    outside: &Path,
+    mode: lattice_sandbox::Mode,
+) -> Result<u8> {
+    let plan = lattice_sandbox::Plan {
+        read: vec![readable.to_path_buf()],
+        write: vec![writable.to_path_buf()],
+    };
+    let report = lattice_sandbox::apply(&plan, mode)?;
+    let observe = |result: std::io::Result<()>| match result {
+        Ok(()) => "allowed".to_owned(),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => "denied".to_owned(),
+        Err(error) => format!("error: {error}"),
+    };
+    let expect = |active: bool| if active { "denied" } else { "allowed" }.to_owned();
+    let filesystem = report.filesystem.is_active();
+    let syscalls = report.syscalls.is_active();
+    let probe = |name: &str, layer: &str, expected: String, observed: String| Probe {
+        name: name.into(),
+        layer: layer.into(),
+        expected,
+        observed,
+    };
+    let network = match std::net::TcpStream::connect(("127.0.0.1", 9)) {
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => "denied".to_owned(),
+        // connected, refused or unreachable: a socket was created, so the network is reachable
+        _ => "allowed".to_owned(),
+    };
+    let probes = vec![
+        probe(
+            "read inside a scan target",
+            "filesystem",
+            "allowed".into(),
+            observe(fs::read(readable.join("sample.txt")).map(drop)),
+        ),
+        probe(
+            "write to an output directory",
+            "filesystem",
+            "allowed".into(),
+            observe(fs::write(writable.join("report.json"), b"{}")),
+        ),
+        probe(
+            "read a file outside the targets",
+            "filesystem",
+            expect(filesystem),
+            observe(fs::read(outside.join("secret.txt")).map(drop)),
+        ),
+        probe(
+            "modify a scan target",
+            "filesystem",
+            expect(filesystem),
+            observe(fs::write(readable.join("sample.txt"), b"tampered")),
+        ),
+        probe(
+            "open a network connection",
+            "system-call",
+            expect(syscalls),
+            network,
+        ),
+        probe(
+            "run another program",
+            "system-call",
+            expect(syscalls),
+            observe(
+                std::process::Command::new(std::env::current_exe()?)
+                    .arg("--version")
+                    .output()
+                    .map(drop),
+            ),
+        ),
+    ];
+    let result = ProbeResult {
+        sandbox: serde_json::to_value(&report)?,
+        probes,
+    };
+    println!("{}", serde_json::to_string(&result)?);
+    Ok(EXIT_OK)
+}
+
+// ---- files --------------------------------------------------------------------------------
+
+fn signature_path(cbom: &Path, explicit: Option<&Path>) -> PathBuf {
+    explicit.map_or_else(
+        || {
+            let mut name = cbom
+                .file_name()
+                .map(|n| n.to_os_string())
+                .unwrap_or_default();
+            name.push(".sig.json");
+            cbom.with_file_name(name)
+        },
+        Path::to_path_buf,
+    )
+}
+
+fn pretty(value: &impl serde::Serialize) -> Result<Vec<u8>> {
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+/// Key and signature files are small; refuse anything that is not, rather than read it whole.
+fn read_text(path: &Path) -> Result<String> {
+    const LIMIT: u64 = 1024 * 1024;
+    let size = fs::metadata(path)
+        .with_context(|| format!("reading {}", path.display()))?
+        .len();
+    if size > LIMIT {
+        bail!("{} is {size} bytes; expected under {LIMIT}", path.display());
+    }
+    fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
+}
+
+/// Writes through a temporary file in the same directory and renames it into place, so readers
+/// never see a half-written report.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    let directory = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    fs::create_dir_all(directory).with_context(|| format!("creating {}", directory.display()))?;
+    let mut temporary = directory.join(format!(
+        ".{}.tmp-{}",
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        std::process::id()
+    ));
+    if temporary.exists() {
+        temporary.set_extension("again");
+    }
+    fs::write(&temporary, bytes).with_context(|| format!("writing {}", temporary.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("moving {} into place", path.display()))
+}
+
+/// Creates a private key file readable only by its owner. Never overwrites.
+fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(directory) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(directory)
+            .with_context(|| format!("creating {}", directory.display()))?;
+    }
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("creating {}", path.display()))?;
+    file.write_all(bytes)
+        .with_context(|| format!("writing {}", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("syncing {}", path.display()))
 }

@@ -1,28 +1,22 @@
 [package]
-name = "lattice-cli"
+name = "lattice-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-
-[[bin]]
-name = "lattice"
-path = "src/main.rs"
+description = "The LATTICE pipeline: collect, normalise, classify, graph, assess, report"
 
 [dependencies]
-anyhow.workspace = true
-clap.workspace = true
 lattice-cbom = { path = "../lattice-cbom" }
+lattice-classify = { path = "../lattice-classify" }
+lattice-collectors = { path = "../lattice-collectors" }
 lattice-core = { path = "../lattice-core" }
-lattice-engine = { path = "../lattice-engine" }
+lattice-graph = { path = "../lattice-graph" }
 lattice-risk = { path = "../lattice-risk" }
-lattice-sandbox = { path = "../lattice-sandbox" }
-lattice-server = { path = "../lattice-server" }
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

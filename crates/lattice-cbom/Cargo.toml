@@ -5,12 +5,27 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["validate"]
+# Validates CBOMs against the vendored official CycloneDX 1.6 JSON schemas, offline.
+validate = ["dep:jsonschema"]
+
 [dependencies]
+base64.workspace = true
 blake3.workspace = true
 fips204.workspace = true
 hex.workspace = true
+jsonschema = { workspace = true, optional = true }
 lattice-core = { path = "../lattice-core" }
+lattice-graph = { path = "../lattice-graph" }
 lattice-risk = { path = "../lattice-risk" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+lattice-classify = { path = "../lattice-classify" }
+
+[lints]
+workspace = true
