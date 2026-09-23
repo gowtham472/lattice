@@ -33,9 +33,9 @@ Every asset carries a **liveness state**, not just an entry in a list:
 
 | State | Meaning | How we establish it |
 |-------|---------|---------------------|
-| **Capable** | A present library *can* do it | binary / library collector |
-| **Configured** | A config or policy *selects* it | config collector - cipher suites, JCA policy, TLS settings |
-| **Confirmed** | It is *observed* on a real path or handshake | graph reachability, or opt-in runtime capture (eBPF / PCAP) |
+| **Capable** | Present in code or a library that *can* do it | source and binary collectors |
+| **Configured** | A config, policy or deployed key *selects* it | configuration, IaC and PKI collectors |
+| **Confirmed** | It is *observed* on a real path or handshake | graph reachability, or negotiation seen in a packet capture |
 
 We report the **highest state reached**. So instead of "you might use SHA-1," LATTICE says
 "RSA is **Confirmed** on the payments handshake." No other tool cleanly separates these
@@ -83,7 +83,7 @@ Mosca's inequality - **X** (secrecy lifetime, from the graph) + **Y** (migration
 the CAS) **> Z** (Q-day, a configurable *range*, not a guess) - feeds a **dependency-ordered
 roadmap** recommending ML-KEM / ML-DSA / hybrid, with latency and handshake-size deltas so
 cost is visible. A **crypto-agility CI gate** then fails any future build that reintroduces
-weak crypto, and the CBOM is **hash-chained and signed with ML-DSA** (we dogfood the
+weak crypto, and the CBOM is **signed with ML-DSA-65 over a per-component hash chain** (we dogfood the
 post-quantum future), running **fully air-gapped**.
 
 ---
@@ -92,13 +92,13 @@ post-quantum future), running **fully air-gapped**.
 
 | PS clause | LATTICE mechanism |
 |-----------|-------------------|
-| (i) Catalogue all artefacts across 6 surfaces | Six collectors → one normalised CycloneDX CBOM |
+| (i) Catalogue all artefacts across surfaces | Six collectors (source, binary, PKI, configuration/IaC, container image, packet capture) → one normalised CycloneDX CBOM |
 | (ii) Quantum risk assessment, risk to sensitive data | Quantum Breakability map + Data-Flow Graph tying assets to classified data |
 | (iii) Classify by type / lifetime / criticality; Mosca | Graph-derived data lifetime → Mosca computed per asset, not guessed |
 | (iv) Recommend PQC / hybrid by risk, latency, cost | Agility-aware advisor with FIPS 203/204/205 + latency/size deltas |
-| Deliverable: standardised report | CycloneDX 1.6 CBOM (JSON), signed PDF |
+| Deliverable: standardised report | CycloneDX 1.6 CBOM (JSON, schema-valid, ML-DSA-signed) plus an explainable report |
 | Deliverable: interactive GUI | Web cockpit: inventory, graph, risk heatmap, Mosca timeline, roadmap |
-| Deliverable: scan repos, binaries, libs, containers | Collectors 1–3 cover exactly these; 4–6 extend the reach |
+| Deliverable: scan repos, binaries, libs, containers | Source, binary and container collectors cover exactly these; PKI, configuration and capture collectors extend the reach |
 
 ---
 

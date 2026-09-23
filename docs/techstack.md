@@ -1,145 +1,100 @@
 # Tech Stack
 
-Rust-first, layer by layer, with the crate chosen and the reason. Rejected alternatives and
-the deeper trade-offs live in [decisions.md](decisions.md); this document is the "what we
-use and why it fits."
+The crates and tools LATTICE uses, layer by layer, and why each fits. Rejected alternatives
+and deeper trade-offs are in [decisions.md](decisions.md).
 
 ---
 
-## Why Rust is the right base for *this* tool (not just the hard one)
+## Why Rust is the right base for this tool
 
-Rust is harder to move fast in than Python. For a general app that would be the wrong
-trade. For a **cryptographic discovery tool that scans sensitive government estates**, the
-properties Rust gives are exactly the ones this problem needs:
-
-1. **Single static binary.** `cargo build --release` for a musl target produces one
-   self-contained executable with no runtime, no interpreter, no dependency tree to install.
-   For an **air-gapped NTRO deployment**, "copy one file onto the box" beats "provision
-   Python + Neo4j + a model server" decisively.
-2. **The best parsers in this exact domain are Rust-native.** The Rusticata project
-   (`x509-parser`, `tls-parser`) and `rustls` are among the most rigorous X.509/TLS parsers
-   anywhere, written precisely because C parsers in this space are a security liability.
-   `goblin` parses ELF/PE/Mach-O in pure Rust. We are building a crypto tool on top of the
-   ecosystem that already does crypto-adjacent parsing best.
-3. **Memory safety for a tool that ingests hostile input.** A scanner parses untrusted
-   binaries, certificates and container layers. A memory-safety bug in a C scanner is an
-   exploit surface *inside a security tool on a sensitive network*. Rust removes that class.
-4. **Performance on large estates without a GC.** Scanning a monorepo or a fleet of images
-   is embarrassingly parallel; `rayon` gives data-parallelism with no runtime, and there is
-   no GC pause to fight during a multi-gigabyte scan.
-5. **Pure-Rust eBPF (`aya`) and pure-Rust PQC (`fips204`).** The two most novel parts -
-   runtime confirmation and signing our own output with ML-DSA - both have first-class Rust
-   crates, so we do not leave the language for the hardest bits.
-
-The honest cost of this choice, and how we contain it, is in [decisions.md](decisions.md) §1.
+1. **Static binaries.** A musl build is one self-contained executable with no runtime to
+   install. For an air-gapped deployment, "copy one file onto the host" beats provisioning an
+   interpreter, a database and a model server.
+2. **Memory safety on hostile input.** A scanner parses untrusted binaries, certificates,
+   archives and packet captures on a sensitive network. A memory-safety bug there is an exploit
+   surface inside a security tool. Rust removes that class; bounds, deadlines, panic isolation
+   and the sandbox handle the rest.
+3. **The parsers this domain needs exist in Rust**: `x509-parser` (Rusticata), `goblin` for
+   ELF/PE/Mach-O, tree-sitter bindings for source.
+4. **Parallelism without a GC.** Scanning is embarrassingly parallel; `rayon` spreads it
+   across cores with no pauses.
+5. **Post-quantum signing in pure Rust.** `fips204` implements ML-DSA, so LATTICE signs its own
+   output with the algorithm it recommends.
 
 ---
 
-## Layer-by-layer
+## Layer by layer
 
-### Core runtime
+### Core
 | Crate | Role | Why |
 |-------|------|-----|
-| `tokio` | async runtime | Concurrency for collectors and the server |
-| `rayon` | data parallelism | Parallel file/layer scanning, no runtime overhead |
-| `serde` / `serde_json` | serialization | CBOM, config, IPC |
-| `anyhow` / `thiserror` | errors | Ergonomic app errors + typed library errors |
-| `tracing` | structured logging | Audit trail of every scan action |
-| `clap` | CLI | `scan` / `serve` / `ci` subcommands |
+| `serde`, `serde_json`, `toml` | data | CBOM, reports, knowledge and policy files |
+| `thiserror`, `anyhow` | errors | Typed library errors; contextual CLI errors |
+| `tracing`, `tracing-subscriber` | logging | Structured logs to stderr |
+| `blake3` | identity | Asset ids, fingerprints, signature chain |
+| `rayon` | parallelism | Files and archives scanned across cores |
+| `clap` | CLI | Subcommands, flags, environment variables |
 
-### Source collector
+### Collectors
 | Crate | Role | Why |
 |-------|------|-----|
-| `tree-sitter` + grammar crates | multi-language AST | One parsing model across Python, Java, Go, C/C++, JS, C#, Rust; incremental and fast |
-| `regex` | rule matching | Fast secondary matching inside AST nodes |
-| rule DB (`serde_yaml`) | crypto signatures | Human-editable algorithm/API rules, versioned, shippable offline |
+| `tree-sitter` + 9 grammar crates | source ASTs | One parsing model for Python, Java, Go, C, C++, JavaScript, TypeScript, Rust, C#; cancellable parsing |
+| `regex` | rule patterns | Callee patterns, library version strings |
+| `goblin` | binaries | ELF, PE and Mach-O in one pure-Rust parser |
+| `aho-corasick` | constant tables | Many byte signatures searched in one pass |
+| `x509-parser` | certificates | Rigorous X.509 parsing (keys are read by an in-house bounds-checked DER reader) |
+| `base64`, `sha2`, `hex` | key formats, fingerprints | PEM and OpenSSH decoding, SHA-256 fingerprints |
+| `tar`, `flate2` | images and tarballs | Streamed layer reading with gzip; no extraction to disk |
+| `walkdir` | traversal | Symlinks never followed |
+| in-house | pcap/pcapng, TCP reassembly, TLS and SSH handshakes | Only handshake metadata is needed; a small bounded parser avoids a larger dependency surface |
 
-### Binary / library collector
+### Connect and decide
 | Crate | Role | Why |
 |-------|------|-----|
-| `goblin` | ELF / PE / Mach-O parsing | One pure-Rust parser for all three formats |
-| `object` | symbol / section access | Complements goblin for symbol tables |
-| `capstone` | disassembly (optional) | Confirm crypto in stripped binaries by instruction patterns |
+| `petgraph` | crypto graph | Traversal without a graph database |
+| pure Rust | classification, scoring, advice | Deterministic, explainable functions with their reasons |
 
-### Container collector
+### Output and integrity
 | Crate | Role | Why |
 |-------|------|-----|
-| `oci-client` | pull images | Daemonless OCI pull - no Docker daemon needed, air-gap friendly |
-| `oci-spec` | manifest / config model | Typed OCI structures |
-| `flate2` + `tar` | layer unpack | Walk each layer's filesystem, then reuse collectors 1–2 |
+| serde model | CycloneDX 1.6 | Full control of the CBOM fields |
+| `jsonschema` (no default features) | validation | Validates against the vendored official schema, never over the network |
+| `fips204` | ML-DSA-65 | Post-quantum signatures over CBOMs and release SBOMs |
 
-### Certificate / config collector
+### Server and cockpit
+| Crate / library | Role | Why |
+|-----------------|------|-----|
+| `axum`, `tokio`, `tower-http` | HTTP API | Async server; security headers; static files |
+| React 19 + TypeScript, Vite | cockpit | Strict typing; small bundle; no UI or chart framework (charts and the graph are SVG) |
+
+### Confinement
 | Crate | Role | Why |
 |-------|------|-----|
-| `x509-parser`, `der`, `asn1-rs` | X.509 parsing | Rusticata-grade certificate analysis |
-| `rustls` / `webpki` | chain / suite logic | Reason about TLS cipher suites and chains |
-| `serde_yaml`, `toml` | config parsing | Cipher configs, policies, IaC |
-
-### Runtime collector (opt-in)
-| Crate | Role | Why |
-|-------|------|-----|
-| `aya` | eBPF | Pure-Rust eBPF to hook crypto library calls - no C toolchain |
-| `pcap`, `etherparse` | capture / L2-L4 | Grab handshakes passively |
-| `tls-parser` | TLS handshake parse | Extract negotiated group/cipher → the "Confirmed" state |
-
-### Graph & storage
-| Crate | Role | Why |
-|-------|------|-----|
-| `petgraph` | in-memory property graph | Reachability and traversal without a networked graph DB |
-| `redb` | embedded persistence | Pure-Rust embedded store; keeps the single-binary, no-service promise |
-
-### Classification
-| Crate | Role | Why |
-|-------|------|-----|
-| `regex` | rule-based PII/data tags | Fast, transparent, offline |
-| `ort` (ONNX Runtime) | optional ML classifier | Run a small data-classification model offline when rules are not enough |
-
-### CBOM & risk
-| Component | Role | Why |
-|-----------|------|-----|
-| serde structs → CycloneDX 1.6 JSON | standard output | Full control of the schema incl. our `lattice{}` extension; validated against the official schema |
-| pure-Rust risk engine | QB / Mosca / HNDL / CAS | Deterministic, explainable, testable - no black box in the scoring |
-
-### Cryptography (our own integrity)
-| Crate | Role | Why |
-|-------|------|-----|
-| `blake3` | content addressing, hash-chain | Fast canonical IDs and a tamper-evident ledger |
-| `sha2` | interop hashing | Standard digests where required |
-| `fips204` / `pqcrypto` | ML-DSA signing | We sign our own CBOM with a post-quantum signature - dogfooding the future we recommend |
-
-### Server & UI
-| Crate / lib | Role | Why |
-|-------------|------|-----|
-| `axum` + `tower` | HTTP + WebSocket | Ergonomic async server on tokio; live scan progress |
-| `rust-embed` | embed the UI | The React build is baked into the binary - still one artefact |
-| React + TypeScript | cockpit | Mature, fast to build a rich UI |
-| Cytoscape.js | graph visualisation | Purpose-built for interactive node/edge graphs |
-| Recharts | charts | Risk heatmap, Mosca timeline |
+| `landlock` | filesystem | Unprivileged, per-process filesystem rules |
+| `seccompiler` | system calls | BPF filter generation without writing BPF by hand |
+| `libc` | syscall numbers | Constants only; the workspace forbids `unsafe` code |
 
 ---
 
-## Standards & knowledge (shipped offline)
+## Standards and knowledge (compiled in)
 
 | Item | Source |
 |------|--------|
-| PQC algorithms | NIST FIPS 203 (ML-KEM), 204 (ML-DSA), 205 (SLH-DSA) |
-| CBOM schema | OWASP CycloneDX 1.6 Cryptographic BOM |
+| PQC algorithms and sizes | NIST FIPS 203 (ML-KEM), 204 (ML-DSA), 205 (SLH-DSA) |
+| Classical strength and deprecations | NIST SP 800-57 Part 1, SP 800-131A, RFC 8996 (TLS 1.0/1.1) |
+| CBOM schema | OWASP CycloneDX 1.6 (vendored 1.6.1 schema) |
 | Migration guidance | NIST SP 1800-38, NIST IR 8547, NSA CNSA 2.0 |
-| Crypto-agility framing | NIST CSWP 39 |
-| National alignment | India DST Task Force PQC report (2026), RBI 2025 guidance |
-| Vulnerability data | OSV.dev mirror + NVD feed (carried in as a signed bundle) |
+| Q-day window | Policy default 2030–2035 |
 
 ---
 
-## Build & packaging
+## Build and packaging
 
 | Concern | Choice |
 |---------|--------|
-| Build | `cargo build --release`, workspace of crates (core, collectors, graph, risk, server, cli) |
-| Portable target | `x86_64-unknown-linux-musl` static binary; also Windows/macOS for laptops |
-| UI build | `vite build` → static assets → embedded via `rust-embed` |
-| Distribution | one binary + signed `.lattice-bundle` knowledge packs |
-| Optional container | a Docker image is provided for convenience, but is never required |
-| Tests | `cargo test`; golden CBOMs for OpenSSL as regression fixtures |
-
-The full "why this and not that" reasoning is in [decisions.md](decisions.md).
+| Toolchain | Rust 1.98.1 pinned in `rust-toolchain.toml`; edition 2024 |
+| Static binaries | `x86_64-` and `aarch64-unknown-linux-musl` via `cargo-zigbuild` (zig as the C toolchain for tree-sitter) |
+| Release profile | fat LTO, one codegen unit, stripped, `panic = "unwind"` (required for panic isolation) |
+| Cockpit | `vite build` to static files shipped at `share/lattice/cockpit` |
+| Releases | Reproducible archives, CycloneDX SBOM, ML-DSA-65 signature, self-CBOM ([release.md](release.md)) |
+| Tests | `cargo test` per crate and end to end; cockpit type-checked with `tsc` |

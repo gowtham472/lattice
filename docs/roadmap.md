@@ -1,109 +1,112 @@
-# Roadmap & Build Plan
+# Roadmap
 
-How LATTICE gets built, in what order, and the exact demo we show the judges.
+What has been built, in what order, what comes next, and the demo.
 
 ---
 
-## 1. Workspace layout (Cargo workspace)
+## 1. Workspace layout
 
 ```
-lattice/
-├── Cargo.toml                 # workspace
+SIH26164/
+├── Cargo.toml                 # workspace (Rust 2024, toolchain pinned)
 ├── crates/
-│   ├── lattice-core/          # Observation, CBOM types, canonical IDs, config
-│   ├── lattice-collectors/    # source, binary, container, config, cloud, runtime
-│   ├── lattice-graph/         # petgraph model + redb persistence + reachability
-│   ├── lattice-classify/      # data classifier (regex + optional ort)
-│   ├── lattice-risk/          # QB map, Mosca, HNDL, CAS, evidence grade
-│   ├── lattice-cbom/          # CycloneDX 1.6 writer + lattice{} extension + signer
-│   ├── lattice-server/        # axum API + WebSocket + rust-embed UI
-│   └── lattice-cli/           # clap: scan / serve / ci
-├── ui/                        # React + TS cockpit (vite) → built into lattice-server
-├── rules/                     # crypto detection rule DB (YAML)
-├── knowledge/                 # algorithm map, policy tables, CVE mirror (bundle source)
-└── fixtures/                  # OpenSSL golden CBOM, sample app, sample image
+│   ├── lattice-core/          # domain model, knowledge base, name parsers, normalisation, policy
+│   ├── lattice-collectors/    # source, binary, PKI, config, container, capture; walker, sandbox
+│   ├── lattice-classify/      # data classification
+│   ├── lattice-graph/         # crypto graph, reachability, exposure
+│   ├── lattice-risk/          # assessor, advisor, roadmap
+│   ├── lattice-cbom/          # CycloneDX 1.6, schema validation, ML-DSA-65 signing
+│   ├── lattice-engine/        # pipeline, traffic attribution, comparison
+│   ├── lattice-server/        # axum API and cockpit host
+│   ├── lattice-sandbox/       # Landlock + seccomp self-confinement
+│   └── lattice-cli/           # the `lattice` binary
+├── cockpit/                   # React + TypeScript (Vite)
+├── knowledge/                 # algorithms, libraries, risk policy (TOML, versioned)
+├── rules/                     # source detection rules (TOML, versioned)
+├── examples/demo-estate/      # six services, an image archive, a packet capture
+├── packaging/                 # systemd unit, Dockerfile
+└── scripts/                   # toolchain, demo artefacts, release, SBOM
 ```
 
 ---
 
-## 2. Milestones
+## 2. Delivered
 
-### Phase 1 - MVP (hackathon)
-Goal: the full vertical slice on a small target set, cockpit included.
+Each phase is one commit in the history.
 
-1. **Skeleton** - workspace, `Observation`/CBOM types, `clap` CLI, `tracing`.
-2. **Source collector** - tree-sitter for C + Python + Java; rule DB v1.
-3. **Binary collector** - `goblin` symbol + constant signatures.
-4. **Container collector** - `oci-client` pull + layer walk reusing 2–3.
-5. **Normaliser + CBOM** - CycloneDX 1.6 JSON with `lattice{}` extension.
-6. **Graph** - `petgraph` model; reachability; data classifier v1 (regex).
-7. **Risk engine** - QB map, Mosca, HNDL, CAS, evidence grade.
-8. **Advisor** - FIPS 203/204/205 recommendations + latency/size deltas table.
-9. **Cockpit** - inventory, Cytoscape graph, heatmap, Mosca timeline, roadmap, WebSocket.
-10. **Signing + export** - blake3 hash-chain, ML-DSA signature, PDF + JSON.
+1. **Design**: problem statement, solution, architecture, decisions, security.
+2. **Core**: domain model, knowledge base, name parsers, normalisation, policy.
+3. **Collectors**: source (nine languages), binary, PKI, configuration and IaC.
+4. **Connect and decide**: data classification, crypto graph, risk engine, advisor, roadmap.
+5. **Output**: CycloneDX 1.6 CBOM with offline schema validation, ML-DSA-65 signing, the
+   engine, the CLI and the CI gate.
+6. **Cockpit**: HTTP API with request guards, the React cockpit, the demo estate.
+7. **Runtime and images**: container-image and packet-capture collectors; traffic attributed
+   to TLS listeners by host name.
+8. **Hardening and releases**: Landlock + seccomp sandbox; reproducible, signed releases with
+   SBOMs; systemd unit; container image.
 
-### Phase 2 - Pilot
-- Certificate/config + cloud KMS collectors.
-- Runtime confirmation (`aya` eBPF + `tls-parser`) → the "Confirmed" state on a live host.
-- `lattice ci` gate; incremental/cached scans; signed knowledge bundles.
-- Diff reports; DST 2027–2029 timeline mapping.
-
-### Phase 3 - Production
-- HSM/TPM discovery; estate-wide orchestration; RBAC on the cockpit.
-- Assisted-migration suggestions (still human-approved).
+Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
+[features.md](features.md).
 
 ---
 
-## 3. The demo script (what the judges see, ~4 minutes)
+## 3. Next
 
-1. **The problem in one line** - "A quantum computer will break today's crypto, and
-   adversaries are recording it now. First you must find all of it. Nobody can tell you what
-   they actually *use*, or what to fix first." (~20s)
-2. **`lattice scan`** on OpenSSL + a sample payments app + a container image. Live progress
-   streams in the cockpit. (~30s)
-3. **Inventory** - the CBOM table fills; filter to Shor-breakable assets. (~20s)
-4. **The graph** - click the payments TLS endpoint; the graph shows it reaches **card data**,
-   internet-facing, 10-year secrecy. (~40s)
-5. **Tri-state liveness** - toggle a captured handshake; the ECDHE asset jumps
-   Capable → Configured → **Confirmed**. "We don't guess that you use it. We prove it." (~30s)
-6. **Decide** - the Mosca timeline shows X+Y>Z; the HNDL heatmap ranks the payments channel
-   top; the Crypto-Agility Score says it's a cheap fix because it uses OpenSSL EVP. (~40s)
-7. **Recommend** - the roadmap card: "Hybrid X25519+ML-KEM-768, +1184 bytes, +0.4 ms,
-   do-first." Export the signed CBOM. (~20s)
-8. **The money shot** - a commit adds RSA; `lattice ci` **fails the build** with the reason.
-   "It doesn't just find crypto once. It stops you backsliding." (~20s)
+In order of value to an operator:
+
+1. **Signed knowledge bundles**: update algorithms, rules and policy without a new release,
+   with rollback protection.
+2. **Incremental scans**: reuse results for unchanged files, so `ci` stays fast on large
+   repositories.
+3. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
+   read-only.
+4. **PDF executive report**: deterministic and signed.
+5. **Access control**: roles, an audit log and mTLS for multi-user deployments.
+6. **Assurance**: fuzzing of every parser, property tests for scoring invariants, a golden
+   CBOM for OpenSSL.
+7. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
+8. **HSM/TPM discovery** through PKCS#11.
 
 ---
 
-## 4. Datasets (all open, per the PS)
+## 4. The demo script (about four minutes)
+
+1. **The problem in one line**: "A quantum computer will break today's public-key
+   cryptography, and adversaries are recording traffic now. First you must find all of it,
+   and know which of it matters."
+2. **Scan** the demo estate in the cockpit: 47 assets from code, config, certificates, keys,
+   Terraform, a container image and a packet capture.
+3. **Overview**: the Mosca timeline shows which assets are already late.
+4. **The path**: open RSA-2048: `POST /v1/payments` → `create_payment` → `tokenize_card`, card
+   data, 10-year secrecy. "We don't just find RSA. We show what it protects and who can reach
+   it."
+5. **Proof**: TLS 1.0 is configured in nginx and negotiated on the wire. "We don't guess that
+   you use it. We saw it."
+6. **Decide**: the roadmap puts cheap urgent fixes first; the advisor gives the hybrid target
+   and its size change.
+7. **The gate**: a commit adds MD5; `lattice ci` fails with the reason.
+8. **Trust**: the CBOM is signed with ML-DSA-65; tampering is caught and located.
+   `lattice sandbox-check` shows the scanner itself is confined.
+
+---
+
+## 5. Datasets (open, per the problem statement)
 
 | Purpose | Dataset |
 |---------|---------|
-| Primary scan target | OpenSSL source (the PS names it) |
-| Sample app for data-flow | a small payments-style Python/Java service (we author) |
-| Container | an off-the-shelf image with known crypto libs |
-| Handshake for "Confirmed" | a captured TLS pcap (we generate) |
-| CVE / library data | OSV.dev mirror, packaged offline |
+| Public scan target | OpenSSL source (named in the problem statement) |
+| Data-flow story | `examples/demo-estate`, authored for this purpose |
+| Container | `examples/demo-estate/images/payments-api-4.2.0.tar` |
+| Confirmed state | `examples/demo-estate/captures/edge-traffic.pcap`: real OpenSSL 3.5 handshakes |
 
 ---
 
-## 5. Risks to the build (and mitigations)
+## 6. Risks and mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| Rust slows the MVP | Scope tight (§2 Phase 1); collectors are thin wrappers over mature crates |
-| eBPF setup eats time | Phase-2; MVP shows "Confirmed" via a captured pcap, same visual result |
-| tree-sitter rule coverage | Start with C/Python/Java only; rule DB is data, expandable later |
-| CycloneDX 1.6 detail churn | Validate against the official schema in CI (golden OpenSSL CBOM) |
-| Scope creep on the cockpit | Six fixed views (features.md); no more for the MVP |
-
----
-
-## 6. Definition of done for the MVP
-
-- `lattice scan` produces a schema-valid CycloneDX 1.6 CBOM for OpenSSL.
-- Every asset carries liveness, evidence grade, QB, Mosca verdict, HNDL index, CAS.
-- The cockpit renders all six views from a real scan.
-- The CI gate fails on an introduced weak-crypto commit.
-- The CBOM is ML-DSA-signed and verifies.
-- The whole thing runs offline from a single binary.
+| Rule coverage gaps in a language | Rules are data (`rules/source.toml`); unmatched crypto still surfaces through imports, binaries, configuration and traffic |
+| Kernels without Landlock | `best-effort` reports it; `required` refuses to run; seccomp is near-universal |
+| Very large archives or captures | Streamed with size, expansion, packet and time bounds; partial results reported |
+| CycloneDX changes | Official schema vendored and every emitted CBOM validated in tests |

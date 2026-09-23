@@ -1,5 +1,12 @@
 # Eraser Architecture Prompt - LATTICE
 
+> **Note.** This prompt produced `Archi-lattice.png`, the original design diagram. The built
+> system differs in places: container images are scanned from exported archives (no
+> `oci-client` pull), runtime evidence comes from packet captures (eBPF is planned), the graph
+> is in-process `petgraph` exported per scan (no `redb`), the cockpit draws its graph in SVG
+> (no Cytoscape.js), and there is no PDF report yet. [architecture.md](../architecture.md) is
+> the as-built specification.
+
 Two ways to generate the diagram in Eraser (eraser.io):
 
 - **Option A** - paste the *natural-language prompt* into Eraser's "Generate diagram with
