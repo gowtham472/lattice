@@ -1,0 +1,94 @@
+# LATTICE risk policy: every weight and default the scoring uses, in one auditable place.
+#
+# These are policy inputs, not facts: an organisation tunes them to its own threat model and
+# records the version it used. Every report carries this file's version, so a score can always
+# be recomputed from the exact inputs that produced it.
+
+version = "2026.09.1"
+
+# Mosca's Z: years until a cryptographically relevant quantum computer (CRQC). A range, because
+# nobody knows the date. `earliest` drives the conservative urgency verdict; both ends are
+# reported. Defaults bracket NSA CNSA 2.0's 2030–2035 transition window.
+[q_day]
+earliest_year = 2030
+latest_year = 2035
+
+# How exposed an asset is, by the kind of entry point that reaches it (HNDL "ExternalExposure").
+[exposure]
+http-route = 1.0
+listener = 1.0
+library-export = 0.6
+main = 0.3
+# nothing we can see reaches it; we do not call that dead code, because frameworks we do not
+# model can still call it
+unreached = 0.3
+
+# How strongly the asset is known to be in use (HNDL "LivenessWeight").
+[liveness_weight]
+confirmed = 1.0
+configured = 0.7
+capable = 0.4
+
+[hndl]
+# Secrecy lifetimes at or above this saturate the lifetime factor at 1.0.
+lifetime_cap_years = 25.0
+
+# Crypto-Agility Score weights (sum to 100) and how a score becomes migration time (Mosca's Y):
+# Y = base_years + (100 - CAS) * years_per_point.
+[agility]
+provider_interface = 40
+config_driven = 20
+negotiation = 15
+centralized = 15
+dependency_pqc_ready = 10
+base_years = 0.25
+years_per_point = 0.04
+
+# Used when nothing identifies the data an asset protects.
+[defaults]
+secrecy_lifetime_years = 5.0
+criticality = "medium"
+
+# Data classes. `terms` match whole identifier tokens: `cardNumber` → [card, number] matches
+# `card`. Lifetimes are how long disclosure would still cause harm.
+[[data_class]]
+id = "classified"
+lifetime_years = 50.0
+criticality = "critical"
+terms = ["classified", "topsecret", "confidential", "defence", "defense", "military", "intel", "intelligence", "sigint", "cabinet", "diplomatic", "nuclear"]
+
+[[data_class]]
+id = "identity"
+lifetime_years = 25.0
+criticality = "critical"
+terms = ["aadhaar", "aadhar", "uid", "passport", "biometric", "fingerprint", "iris", "kyc", "ssn", "voter", "epic", "pan_card", "dob", "birthdate", "nationalid", "citizen"]
+
+[[data_class]]
+id = "health"
+lifetime_years = 20.0
+criticality = "critical"
+terms = ["health", "patient", "medical", "diagnosis", "clinical", "prescription", "ehr", "emr", "abha", "hospital", "treatment", "genome", "dna"]
+
+[[data_class]]
+id = "financial"
+lifetime_years = 10.0
+criticality = "critical"
+terms = ["card", "pan", "cvv", "cvc", "iban", "ifsc", "account", "payment", "payments", "pay", "upi", "vpa", "transaction", "txn", "salary", "invoice", "bank", "wallet", "ledger", "loan", "credit", "debit", "tax", "gst"]
+
+[[data_class]]
+id = "credential"
+lifetime_years = 5.0
+criticality = "high"
+terms = ["password", "passwd", "pwd", "credential", "credentials", "secret_key", "apikey", "token", "jwt", "otp", "pin", "privatekey", "private", "auth", "login", "session", "cookie", "oauth", "saml"]
+
+[[data_class]]
+id = "personal"
+lifetime_years = 10.0
+criticality = "high"
+terms = ["email", "phone", "mobile", "address", "customer", "user", "profile", "name", "contact", "location", "gps"]
+
+[[data_class]]
+id = "public"
+lifetime_years = 0.0
+criticality = "low"
+terms = ["public", "checksum", "etag", "cache", "fixture", "example", "sample", "demo", "test", "mock"]

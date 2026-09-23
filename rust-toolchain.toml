@@ -1,0 +1,6 @@
+# Pinned so every build of LATTICE is reproducible (security.md §12).
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-unknown-linux-musl"]

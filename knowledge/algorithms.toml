@@ -1,0 +1,1331 @@
+# LATTICE algorithm knowledge base.
+#
+# Every quantum and classical judgement LATTICE prints traces back to an entry in this file,
+# so each field names its source. The file is embedded in the binary and versioned; a signed
+# knowledge bundle can replace it without a rebuild (security.md §7).
+#
+# Field reference
+#   id          canonical identifier used in reports and bom-refs (lowercase, stable)
+#   name        display name
+#   primitive   CycloneDX 1.6 cryptoProperties.algorithmProperties.primitive
+#   functions   CycloneDX cryptoFunctions this algorithm performs
+#   quantum     shor         broken outright by Shor's algorithm (factoring / discrete log)
+#               grover       generic quantum search roughly halves the security exponent
+#               post-quantum designed and standardised to resist known quantum attacks
+#   classical   acceptable | legacy | disallowed | broken, judged today, independent of Q-day
+#   security    how classical security strength (bits) is derived:
+#               key-bits          equal to the key size (block/stream ciphers)
+#               integer-factoring NIST SP 800-57 Pt1 Rev5 Table 2 on the modulus size (RSA, DH, DSA)
+#               curve             from the named curve's strength (see [[curve]])
+#               fixed             always `strength` bits
+#               hash-output       half the digest size (collision resistance)
+#               parameter-set     from the selected [[algorithm.parameter_set]]
+#   min_key_bits  below this size the algorithm is disallowed (SP 800-131A Rev2)
+#   weak_modes    modes that are unsafe regardless of key size
+
+version = "2026.09.1"
+
+# ---------------------------------------------------------------------------------------------
+# Public-key algorithms broken by Shor's algorithm
+# ---------------------------------------------------------------------------------------------
+
+[[algorithm]]
+id = "rsa"
+name = "RSA"
+family = "RSA"
+primitive = "pke"
+functions = ["encrypt", "decrypt", "sign", "verify", "keygen"]
+quantum = "shor"
+classical = "acceptable"
+security = "integer-factoring"
+min_key_bits = 2048
+key_bits = [1024, 2048, 3072, 4096, 7680, 8192, 15360]
+aliases = ["rsa", "rsaencryption", "rsassa", "rsaes", "rsa-oaep", "rsassa-pss", "rsa-pss", "rsassa-pkcs1-v1_5", "rsaes-pkcs1-v1_5"]
+oids = ["1.2.840.113549.1.1.1", "1.2.840.113549.1.1.7", "1.2.840.113549.1.1.10"]
+replacement = { signature = "ml-dsa-65", encryption = "x25519-mlkem768" }
+standard = "RFC 8017"
+note = "RSA below 2048 bits is disallowed by NIST SP 800-131A Rev2."
+
+[[algorithm]]
+id = "dh"
+name = "DH"
+family = "DH"
+primitive = "key-agree"
+functions = ["keygen", "keyderive"]
+quantum = "shor"
+classical = "acceptable"
+security = "integer-factoring"
+min_key_bits = 2048
+key_bits = [1024, 2048, 3072, 4096, 6144, 8192]
+aliases = ["dh", "dhe", "edh", "diffie-hellman", "ffdhe", "ffdhe2048", "ffdhe3072", "ffdhe4096", "ffdhe6144", "ffdhe8192", "dhkeyagreement"]
+oids = ["1.2.840.113549.1.3.1", "1.2.840.10046.2.1"]
+replacement = { key-agreement = "x25519-mlkem768" }
+standard = "RFC 7919"
+note = "Finite-field Diffie-Hellman below 2048 bits is disallowed by NIST SP 800-131A Rev2 (Logjam)."
+
+[[algorithm]]
+id = "dsa"
+name = "DSA"
+family = "DSA"
+primitive = "signature"
+functions = ["sign", "verify", "keygen"]
+quantum = "shor"
+classical = "legacy"
+security = "integer-factoring"
+min_key_bits = 2048
+key_bits = [1024, 2048, 3072]
+aliases = ["dsa", "dss"]
+oids = ["1.2.840.10040.4.1"]
+replacement = { signature = "ml-dsa-65" }
+standard = "FIPS 186-4"
+note = "FIPS 186-5 no longer approves DSA for signature generation; verification of legacy signatures only."
+
+[[algorithm]]
+id = "ecdsa"
+name = "ECDSA"
+family = "ECDSA"
+primitive = "signature"
+functions = ["sign", "verify", "keygen"]
+quantum = "shor"
+classical = "acceptable"
+security = "curve"
+aliases = ["ecdsa", "ec", "ecpublickey", "id-ecpublickey", "ecdsa-sha2"]
+oids = ["1.2.840.10045.2.1"]
+replacement = { signature = "ml-dsa-65" }
+standard = "FIPS 186-5"
+
+[[algorithm]]
+id = "ecdh"
+name = "ECDH"
+family = "ECDH"
+primitive = "key-agree"
+functions = ["keygen", "keyderive"]
+quantum = "shor"
+classical = "acceptable"
+security = "curve"
+aliases = ["ecdh", "ecdhe", "ecdh-es", "ecmqv"]
+oids = ["1.3.132.1.12"]
+replacement = { key-agreement = "x25519-mlkem768" }
+standard = "NIST SP 800-56A Rev3"
+
+[[algorithm]]
+id = "x25519"
+name = "X25519"
+family = "ECDH"
+primitive = "key-agree"
+functions = ["keygen", "keyderive"]
+quantum = "shor"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+curve = "curve25519"
+aliases = ["x25519", "curve25519", "curve25519-sha256", "curve25519-sha256@libssh.org"]
+oids = ["1.3.101.110"]
+replacement = { key-agreement = "x25519-mlkem768" }
+standard = "RFC 7748"
+
+[[algorithm]]
+id = "x448"
+name = "X448"
+family = "ECDH"
+primitive = "key-agree"
+functions = ["keygen", "keyderive"]
+quantum = "shor"
+classical = "acceptable"
+security = "fixed"
+strength = 224
+curve = "curve448"
+aliases = ["x448", "curve448"]
+oids = ["1.3.101.111"]
+replacement = { key-agreement = "x25519-mlkem768" }
+standard = "RFC 7748"
+
+[[algorithm]]
+id = "ed25519"
+name = "Ed25519"
+family = "EdDSA"
+primitive = "signature"
+functions = ["sign", "verify", "keygen"]
+quantum = "shor"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+curve = "curve25519"
+aliases = ["ed25519", "eddsa", "ssh-ed25519", "pureeddsa"]
+oids = ["1.3.101.112"]
+replacement = { signature = "ml-dsa-65" }
+standard = "RFC 8032"
+
+[[algorithm]]
+id = "ed448"
+name = "Ed448"
+family = "EdDSA"
+primitive = "signature"
+functions = ["sign", "verify", "keygen"]
+quantum = "shor"
+classical = "acceptable"
+security = "fixed"
+strength = 224
+curve = "curve448"
+aliases = ["ed448", "ssh-ed448"]
+oids = ["1.3.101.113"]
+replacement = { signature = "ml-dsa-87" }
+standard = "RFC 8032"
+
+[[algorithm]]
+id = "elgamal"
+name = "ElGamal"
+family = "ElGamal"
+primitive = "pke"
+functions = ["encrypt", "decrypt", "keygen"]
+quantum = "shor"
+classical = "legacy"
+security = "integer-factoring"
+min_key_bits = 2048
+aliases = ["elgamal"]
+oids = ["1.3.14.7.2.1.1"]
+replacement = { encryption = "x25519-mlkem768" }
+
+[[algorithm]]
+id = "sm2"
+name = "SM2"
+family = "SM2"
+primitive = "signature"
+functions = ["sign", "verify", "encrypt", "decrypt", "keygen"]
+quantum = "shor"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["sm2"]
+oids = ["1.2.156.10197.1.301"]
+replacement = { signature = "ml-dsa-65" }
+standard = "GB/T 32918"
+
+# ---------------------------------------------------------------------------------------------
+# Post-quantum standards (NIST FIPS 203/204/205, SP 800-208, FIPS 206 draft, HQC selection)
+# Sizes in bytes; they drive the handshake/size deltas the migration planner reports.
+# ---------------------------------------------------------------------------------------------
+
+[[algorithm]]
+id = "ml-kem"
+name = "ML-KEM"
+family = "ML-KEM"
+primitive = "kem"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "parameter-set"
+aliases = ["ml-kem", "mlkem", "kyber", "crystals-kyber"]
+standard = "FIPS 203"
+[[algorithm.parameter_set]]
+name = "512"
+aliases = ["512", "kyber512"]
+nist_level = 1
+strength = 128
+public_key_bytes = 800
+ciphertext_bytes = 768
+oid = "2.16.840.1.101.3.4.4.1"
+[[algorithm.parameter_set]]
+name = "768"
+aliases = ["768", "kyber768"]
+nist_level = 3
+strength = 192
+public_key_bytes = 1184
+ciphertext_bytes = 1088
+oid = "2.16.840.1.101.3.4.4.2"
+[[algorithm.parameter_set]]
+name = "1024"
+aliases = ["1024", "kyber1024"]
+nist_level = 5
+strength = 256
+public_key_bytes = 1568
+ciphertext_bytes = 1568
+oid = "2.16.840.1.101.3.4.4.3"
+
+[[algorithm]]
+id = "ml-dsa"
+name = "ML-DSA"
+family = "ML-DSA"
+primitive = "signature"
+functions = ["keygen", "sign", "verify"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "parameter-set"
+aliases = ["ml-dsa", "mldsa", "dilithium", "crystals-dilithium"]
+standard = "FIPS 204"
+[[algorithm.parameter_set]]
+name = "44"
+aliases = ["44", "dilithium2", "2"]
+nist_level = 2
+strength = 128
+public_key_bytes = 1312
+signature_bytes = 2420
+oid = "2.16.840.1.101.3.4.3.17"
+[[algorithm.parameter_set]]
+name = "65"
+aliases = ["65", "dilithium3", "3"]
+nist_level = 3
+strength = 192
+public_key_bytes = 1952
+signature_bytes = 3309
+oid = "2.16.840.1.101.3.4.3.18"
+[[algorithm.parameter_set]]
+name = "87"
+aliases = ["87", "dilithium5", "5"]
+nist_level = 5
+strength = 256
+public_key_bytes = 2592
+signature_bytes = 4627
+oid = "2.16.840.1.101.3.4.3.19"
+
+[[algorithm]]
+id = "slh-dsa"
+name = "SLH-DSA"
+family = "SLH-DSA"
+primitive = "signature"
+functions = ["keygen", "sign", "verify"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "parameter-set"
+aliases = ["slh-dsa", "slhdsa", "sphincs+", "sphincsplus", "sphincs"]
+standard = "FIPS 205"
+[[algorithm.parameter_set]]
+name = "sha2-128s"
+aliases = ["sha2-128s", "128s"]
+nist_level = 1
+strength = 128
+public_key_bytes = 32
+signature_bytes = 7856
+oid = "2.16.840.1.101.3.4.3.20"
+[[algorithm.parameter_set]]
+name = "sha2-128f"
+aliases = ["sha2-128f", "128f"]
+nist_level = 1
+strength = 128
+public_key_bytes = 32
+signature_bytes = 17088
+oid = "2.16.840.1.101.3.4.3.21"
+[[algorithm.parameter_set]]
+name = "sha2-192s"
+aliases = ["sha2-192s", "192s"]
+nist_level = 3
+strength = 192
+public_key_bytes = 48
+signature_bytes = 16224
+oid = "2.16.840.1.101.3.4.3.22"
+[[algorithm.parameter_set]]
+name = "sha2-192f"
+aliases = ["sha2-192f", "192f"]
+nist_level = 3
+strength = 192
+public_key_bytes = 48
+signature_bytes = 35664
+oid = "2.16.840.1.101.3.4.3.23"
+[[algorithm.parameter_set]]
+name = "sha2-256s"
+aliases = ["sha2-256s", "256s"]
+nist_level = 5
+strength = 256
+public_key_bytes = 64
+signature_bytes = 29792
+oid = "2.16.840.1.101.3.4.3.24"
+[[algorithm.parameter_set]]
+name = "sha2-256f"
+aliases = ["sha2-256f", "256f"]
+nist_level = 5
+strength = 256
+public_key_bytes = 64
+signature_bytes = 49856
+oid = "2.16.840.1.101.3.4.3.25"
+[[algorithm.parameter_set]]
+name = "shake-128s"
+aliases = ["shake-128s"]
+nist_level = 1
+strength = 128
+public_key_bytes = 32
+signature_bytes = 7856
+oid = "2.16.840.1.101.3.4.3.26"
+[[algorithm.parameter_set]]
+name = "shake-256s"
+aliases = ["shake-256s"]
+nist_level = 5
+strength = 256
+public_key_bytes = 64
+signature_bytes = 29792
+oid = "2.16.840.1.101.3.4.3.30"
+
+[[algorithm]]
+id = "fn-dsa"
+name = "FN-DSA"
+family = "FN-DSA"
+primitive = "signature"
+functions = ["keygen", "sign", "verify"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "parameter-set"
+aliases = ["fn-dsa", "fndsa", "falcon"]
+standard = "FIPS 206 (draft)"
+[[algorithm.parameter_set]]
+name = "512"
+aliases = ["512", "falcon512", "falcon-512"]
+nist_level = 1
+strength = 128
+public_key_bytes = 897
+signature_bytes = 666
+[[algorithm.parameter_set]]
+name = "1024"
+aliases = ["1024", "falcon1024", "falcon-1024"]
+nist_level = 5
+strength = 256
+public_key_bytes = 1793
+signature_bytes = 1280
+
+[[algorithm]]
+id = "hqc"
+name = "HQC"
+family = "HQC"
+primitive = "kem"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "parameter-set"
+aliases = ["hqc"]
+standard = "NIST IR 8545 (selected 2025)"
+[[algorithm.parameter_set]]
+name = "128"
+aliases = ["128", "hqc-128"]
+nist_level = 1
+strength = 128
+public_key_bytes = 2249
+ciphertext_bytes = 4433
+[[algorithm.parameter_set]]
+name = "192"
+aliases = ["192", "hqc-192"]
+nist_level = 3
+strength = 192
+public_key_bytes = 4522
+ciphertext_bytes = 8978
+[[algorithm.parameter_set]]
+name = "256"
+aliases = ["256", "hqc-256"]
+nist_level = 5
+strength = 256
+public_key_bytes = 7245
+ciphertext_bytes = 14421
+
+[[algorithm]]
+id = "lms"
+name = "LMS"
+family = "LMS"
+primitive = "signature"
+functions = ["keygen", "sign", "verify"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["lms", "hss", "hss-lms"]
+oids = ["1.2.840.113549.1.9.16.3.17"]
+standard = "NIST SP 800-208"
+note = "Stateful hash-based signature: safe only if one-time key state is never reused."
+
+[[algorithm]]
+id = "xmss"
+name = "XMSS"
+family = "XMSS"
+primitive = "signature"
+functions = ["keygen", "sign", "verify"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["xmss", "xmssmt", "xmss^mt"]
+standard = "NIST SP 800-208"
+note = "Stateful hash-based signature: safe only if one-time key state is never reused."
+
+[[algorithm]]
+id = "frodokem"
+name = "FrodoKEM"
+family = "FrodoKEM"
+primitive = "kem"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 192
+aliases = ["frodokem", "frodo", "frodokem-976", "frodokem-640", "frodokem-1344"]
+standard = "ISO/IEC 18033-2 amd (draft); not a NIST standard"
+
+[[algorithm]]
+id = "classic-mceliece"
+name = "Classic McEliece"
+family = "Classic McEliece"
+primitive = "kem"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 256
+aliases = ["classic-mceliece", "mceliece", "mceliece348864", "mceliece6960119"]
+standard = "ISO/IEC (draft); not a NIST standard"
+
+# Hybrid key establishment: a classical and a post-quantum KEM combined so the shared secret
+# stays safe if either survives. CycloneDX models these with primitive "combiner".
+[[algorithm]]
+id = "x25519-mlkem768"
+name = "X25519MLKEM768"
+family = "Hybrid"
+primitive = "combiner"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 192
+nist_level = 3
+public_key_bytes = 1216
+ciphertext_bytes = 1120
+aliases = ["x25519mlkem768", "x25519-mlkem768", "x25519_mlkem768", "x25519kyber768", "x25519kyber768draft00", "mlkem768x25519", "mlkem768x25519-sha256"]
+standard = "draft-ietf-tls-ecdhe-mlkem; TLS group 0x11EC"
+
+[[algorithm]]
+id = "secp256r1-mlkem768"
+name = "SecP256r1MLKEM768"
+family = "Hybrid"
+primitive = "combiner"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 192
+nist_level = 3
+public_key_bytes = 1249
+ciphertext_bytes = 1153
+aliases = ["secp256r1mlkem768", "secp256r1-mlkem768", "p256mlkem768", "p256_mlkem768"]
+standard = "draft-ietf-tls-ecdhe-mlkem; TLS group 0x11EB"
+
+[[algorithm]]
+id = "secp384r1-mlkem1024"
+name = "SecP384r1MLKEM1024"
+family = "Hybrid"
+primitive = "combiner"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 256
+nist_level = 5
+public_key_bytes = 1665
+ciphertext_bytes = 1665
+aliases = ["secp384r1mlkem1024", "secp384r1-mlkem1024", "p384mlkem1024", "p384_mlkem1024"]
+standard = "draft-ietf-tls-ecdhe-mlkem; TLS group 0x11ED"
+
+[[algorithm]]
+id = "sntrup761-x25519"
+name = "sntrup761x25519"
+family = "Hybrid"
+primitive = "combiner"
+functions = ["keygen", "encapsulate", "decapsulate"]
+quantum = "post-quantum"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+nist_level = 1
+aliases = ["sntrup761x25519", "sntrup761x25519-sha512", "sntrup761x25519-sha512@openssh.com"]
+standard = "OpenSSH 9.0 default hybrid key exchange"
+
+# ---------------------------------------------------------------------------------------------
+# Symmetric ciphers (Grover: quantum search halves the effective key length)
+# ---------------------------------------------------------------------------------------------
+
+[[algorithm]]
+id = "aes"
+name = "AES"
+family = "AES"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "acceptable"
+security = "key-bits"
+key_bits = [128, 192, 256]
+modes = ["ecb", "cbc", "ctr", "gcm", "ccm", "ofb", "cfb", "cfb1", "cfb8", "cfb128", "xts", "ocb", "kw", "kwp", "siv", "gcm-siv", "eax", "wrap", "wrap-pad"]
+weak_modes = ["ecb"]
+aliases = ["aes", "rijndael"]
+replacement = { encryption = "aes-256-gcm" }
+standard = "FIPS 197"
+# OID arcs 2.16.840.1.101.3.4.1.x encode key size and mode together.
+oid_map = [
+  { oid = "2.16.840.1.101.3.4.1.1", key_bits = 128, mode = "ecb" },
+  { oid = "2.16.840.1.101.3.4.1.2", key_bits = 128, mode = "cbc" },
+  { oid = "2.16.840.1.101.3.4.1.3", key_bits = 128, mode = "ofb" },
+  { oid = "2.16.840.1.101.3.4.1.4", key_bits = 128, mode = "cfb" },
+  { oid = "2.16.840.1.101.3.4.1.5", key_bits = 128, mode = "kw" },
+  { oid = "2.16.840.1.101.3.4.1.6", key_bits = 128, mode = "gcm" },
+  { oid = "2.16.840.1.101.3.4.1.7", key_bits = 128, mode = "ccm" },
+  { oid = "2.16.840.1.101.3.4.1.8", key_bits = 128, mode = "kwp" },
+  { oid = "2.16.840.1.101.3.4.1.21", key_bits = 192, mode = "ecb" },
+  { oid = "2.16.840.1.101.3.4.1.22", key_bits = 192, mode = "cbc" },
+  { oid = "2.16.840.1.101.3.4.1.26", key_bits = 192, mode = "gcm" },
+  { oid = "2.16.840.1.101.3.4.1.41", key_bits = 256, mode = "ecb" },
+  { oid = "2.16.840.1.101.3.4.1.42", key_bits = 256, mode = "cbc" },
+  { oid = "2.16.840.1.101.3.4.1.43", key_bits = 256, mode = "ofb" },
+  { oid = "2.16.840.1.101.3.4.1.44", key_bits = 256, mode = "cfb" },
+  { oid = "2.16.840.1.101.3.4.1.45", key_bits = 256, mode = "kw" },
+  { oid = "2.16.840.1.101.3.4.1.46", key_bits = 256, mode = "gcm" },
+  { oid = "2.16.840.1.101.3.4.1.47", key_bits = 256, mode = "ccm" },
+  { oid = "2.16.840.1.101.3.4.1.48", key_bits = 256, mode = "kwp" },
+]
+
+[[algorithm]]
+id = "chacha20"
+name = "ChaCha20"
+family = "ChaCha20"
+primitive = "stream-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 256
+key_bits = [256]
+aliases = ["chacha20", "chacha"]
+standard = "RFC 8439"
+
+[[algorithm]]
+id = "chacha20-poly1305"
+name = "ChaCha20-Poly1305"
+family = "ChaCha20"
+primitive = "ae"
+functions = ["encrypt", "decrypt", "tag"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 256
+key_bits = [256]
+aliases = ["chacha20-poly1305", "chacha20poly1305", "chacha20_poly1305", "chacha20-poly1305@openssh.com", "xchacha20-poly1305", "xchacha20poly1305"]
+standard = "RFC 8439"
+
+[[algorithm]]
+id = "3des"
+name = "3DES"
+family = "DES"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "disallowed"
+security = "fixed"
+strength = 112
+key_bits = [168]
+aliases = ["3des", "tdea", "tripledes", "desede", "des-ede3", "des-ede", "des3", "3des-cbc", "des_ede3"]
+oids = ["1.2.840.113549.3.7"]
+replacement = { encryption = "aes-256-gcm" }
+standard = "NIST SP 800-67 Rev2"
+note = "Disallowed for encryption after 2023 by NIST SP 800-131A Rev2 (64-bit block, SWEET32)."
+
+[[algorithm]]
+id = "des"
+name = "DES"
+family = "DES"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "broken"
+security = "fixed"
+strength = 56
+key_bits = [56]
+aliases = ["des", "des-cbc", "des-ecb"]
+oids = ["1.3.14.3.2.7"]
+replacement = { encryption = "aes-256-gcm" }
+standard = "FIPS 46-3 (withdrawn)"
+note = "56-bit key is exhaustively searchable today."
+
+[[algorithm]]
+id = "rc4"
+name = "RC4"
+family = "RC4"
+primitive = "stream-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "broken"
+security = "key-bits"
+aliases = ["rc4", "arcfour", "arc4", "arcfour128", "arcfour256"]
+oids = ["1.2.840.113549.3.4"]
+replacement = { encryption = "aes-256-gcm" }
+note = "Prohibited in TLS by RFC 7465; keystream biases are practically exploitable."
+
+[[algorithm]]
+id = "rc2"
+name = "RC2"
+family = "RC2"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "broken"
+security = "key-bits"
+aliases = ["rc2"]
+oids = ["1.2.840.113549.3.2"]
+replacement = { encryption = "aes-256-gcm" }
+
+[[algorithm]]
+id = "blowfish"
+name = "Blowfish"
+family = "Blowfish"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "legacy"
+security = "key-bits"
+aliases = ["blowfish", "bf", "bf-cbc"]
+replacement = { encryption = "aes-256-gcm" }
+note = "64-bit block size is vulnerable to birthday attacks (SWEET32) on long sessions."
+
+[[algorithm]]
+id = "idea"
+name = "IDEA"
+family = "IDEA"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "legacy"
+security = "fixed"
+strength = 128
+aliases = ["idea"]
+replacement = { encryption = "aes-256-gcm" }
+
+[[algorithm]]
+id = "cast5"
+name = "CAST5"
+family = "CAST"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "legacy"
+security = "key-bits"
+aliases = ["cast5", "cast", "cast128", "cast-128"]
+replacement = { encryption = "aes-256-gcm" }
+
+[[algorithm]]
+id = "camellia"
+name = "Camellia"
+family = "Camellia"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "acceptable"
+security = "key-bits"
+key_bits = [128, 192, 256]
+aliases = ["camellia"]
+standard = "RFC 3713"
+
+[[algorithm]]
+id = "aria"
+name = "ARIA"
+family = "ARIA"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "acceptable"
+security = "key-bits"
+key_bits = [128, 192, 256]
+aliases = ["aria"]
+standard = "RFC 5794"
+
+[[algorithm]]
+id = "sm4"
+name = "SM4"
+family = "SM4"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+key_bits = [128]
+aliases = ["sm4"]
+standard = "GB/T 32907"
+
+[[algorithm]]
+id = "twofish"
+name = "Twofish"
+family = "Twofish"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "acceptable"
+security = "key-bits"
+key_bits = [128, 192, 256]
+aliases = ["twofish"]
+
+[[algorithm]]
+id = "seed"
+name = "SEED"
+family = "SEED"
+primitive = "block-cipher"
+functions = ["encrypt", "decrypt"]
+quantum = "grover"
+classical = "legacy"
+security = "fixed"
+strength = 128
+aliases = ["seed"]
+
+# ---------------------------------------------------------------------------------------------
+# Hash functions and XOFs (Grover/BHT reduce preimage and collision margins)
+# ---------------------------------------------------------------------------------------------
+
+[[algorithm]]
+id = "md5"
+name = "MD5"
+family = "MD5"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "broken"
+security = "fixed"
+strength = 18
+output_bits = 128
+aliases = ["md5"]
+oids = ["1.2.840.113549.2.5"]
+replacement = { digest = "sha-384" }
+note = "Practical collisions since 2004 (Wang et al.); chosen-prefix collisions are cheap."
+
+[[algorithm]]
+id = "md4"
+name = "MD4"
+family = "MD4"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "broken"
+security = "fixed"
+strength = 2
+output_bits = 128
+aliases = ["md4"]
+oids = ["1.2.840.113549.2.4"]
+replacement = { digest = "sha-384" }
+
+[[algorithm]]
+id = "sha-1"
+name = "SHA-1"
+family = "SHA-1"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "broken"
+security = "fixed"
+strength = 63
+output_bits = 160
+aliases = ["sha-1", "sha1", "sha"]
+oids = ["1.3.14.3.2.26"]
+replacement = { digest = "sha-384" }
+note = "Chosen-prefix collisions demonstrated (SHAmbles, 2020); disallowed for signatures by SP 800-131A."
+
+[[algorithm]]
+id = "sha-224"
+name = "SHA-224"
+family = "SHA-2"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 224
+aliases = ["sha-224", "sha224"]
+oids = ["2.16.840.1.101.3.4.2.4"]
+replacement = { digest = "sha-384" }
+standard = "FIPS 180-4"
+
+[[algorithm]]
+id = "sha-256"
+name = "SHA-256"
+family = "SHA-2"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 256
+aliases = ["sha-256", "sha256", "sha2", "sha-2"]
+oids = ["2.16.840.1.101.3.4.2.1"]
+standard = "FIPS 180-4"
+
+[[algorithm]]
+id = "sha-384"
+name = "SHA-384"
+family = "SHA-2"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 384
+aliases = ["sha-384", "sha384"]
+oids = ["2.16.840.1.101.3.4.2.2"]
+standard = "FIPS 180-4"
+
+[[algorithm]]
+id = "sha-512"
+name = "SHA-512"
+family = "SHA-2"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 512
+aliases = ["sha-512", "sha512"]
+oids = ["2.16.840.1.101.3.4.2.3"]
+standard = "FIPS 180-4"
+
+[[algorithm]]
+id = "sha-512-256"
+name = "SHA-512/256"
+family = "SHA-2"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 256
+aliases = ["sha-512/256", "sha512/256", "sha-512-256", "sha512_256"]
+oids = ["2.16.840.1.101.3.4.2.6"]
+standard = "FIPS 180-4"
+
+[[algorithm]]
+id = "sha3-256"
+name = "SHA3-256"
+family = "SHA-3"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 256
+aliases = ["sha3-256", "sha3_256", "sha3256"]
+oids = ["2.16.840.1.101.3.4.2.8"]
+standard = "FIPS 202"
+
+[[algorithm]]
+id = "sha3-384"
+name = "SHA3-384"
+family = "SHA-3"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 384
+aliases = ["sha3-384", "sha3_384"]
+oids = ["2.16.840.1.101.3.4.2.9"]
+standard = "FIPS 202"
+
+[[algorithm]]
+id = "sha3-512"
+name = "SHA3-512"
+family = "SHA-3"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 512
+aliases = ["sha3-512", "sha3_512"]
+oids = ["2.16.840.1.101.3.4.2.10"]
+standard = "FIPS 202"
+
+[[algorithm]]
+id = "shake128"
+name = "SHAKE128"
+family = "SHA-3"
+primitive = "xof"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["shake128", "shake-128"]
+oids = ["2.16.840.1.101.3.4.2.11"]
+standard = "FIPS 202"
+
+[[algorithm]]
+id = "shake256"
+name = "SHAKE256"
+family = "SHA-3"
+primitive = "xof"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 256
+aliases = ["shake256", "shake-256"]
+oids = ["2.16.840.1.101.3.4.2.12"]
+standard = "FIPS 202"
+
+[[algorithm]]
+id = "blake2b"
+name = "BLAKE2b"
+family = "BLAKE2"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 512
+aliases = ["blake2b", "blake2b512", "blake2b-512"]
+standard = "RFC 7693"
+
+[[algorithm]]
+id = "blake2s"
+name = "BLAKE2s"
+family = "BLAKE2"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 256
+aliases = ["blake2s", "blake2s256", "blake2s-256"]
+standard = "RFC 7693"
+
+[[algorithm]]
+id = "blake3"
+name = "BLAKE3"
+family = "BLAKE3"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 256
+aliases = ["blake3"]
+
+[[algorithm]]
+id = "sm3"
+name = "SM3"
+family = "SM3"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "acceptable"
+security = "hash-output"
+output_bits = 256
+aliases = ["sm3"]
+oids = ["1.2.156.10197.1.401"]
+
+[[algorithm]]
+id = "ripemd160"
+name = "RIPEMD-160"
+family = "RIPEMD"
+primitive = "hash"
+functions = ["digest"]
+quantum = "grover"
+classical = "legacy"
+security = "hash-output"
+output_bits = 160
+aliases = ["ripemd160", "ripemd-160", "rmd160"]
+oids = ["1.3.36.3.2.1"]
+replacement = { digest = "sha-384" }
+
+# ---------------------------------------------------------------------------------------------
+# MACs, KDFs, password hashing and DRBGs
+# ---------------------------------------------------------------------------------------------
+
+[[algorithm]]
+id = "hmac"
+name = "HMAC"
+family = "HMAC"
+primitive = "mac"
+functions = ["tag"]
+quantum = "grover"
+classical = "acceptable"
+security = "digest"
+aliases = ["hmac"]
+oids = ["1.2.840.113549.2.7", "1.2.840.113549.2.9", "1.2.840.113549.2.10", "1.2.840.113549.2.11"]
+standard = "FIPS 198-1"
+note = "Strength follows the underlying digest; HMAC-SHA1 remains a secure PRF but is legacy."
+
+[[algorithm]]
+id = "cmac"
+name = "CMAC"
+family = "CMAC"
+primitive = "mac"
+functions = ["tag"]
+quantum = "grover"
+classical = "acceptable"
+security = "key-bits"
+aliases = ["cmac", "aes-cmac", "aescmac"]
+standard = "NIST SP 800-38B"
+
+[[algorithm]]
+id = "gmac"
+name = "GMAC"
+family = "GMAC"
+primitive = "mac"
+functions = ["tag"]
+quantum = "grover"
+classical = "acceptable"
+security = "key-bits"
+aliases = ["gmac", "aes-gmac"]
+standard = "NIST SP 800-38D"
+
+[[algorithm]]
+id = "poly1305"
+name = "Poly1305"
+family = "Poly1305"
+primitive = "mac"
+functions = ["tag"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["poly1305"]
+standard = "RFC 8439"
+
+[[algorithm]]
+id = "kmac"
+name = "KMAC"
+family = "SHA-3"
+primitive = "mac"
+functions = ["tag"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 256
+aliases = ["kmac", "kmac128", "kmac256"]
+standard = "NIST SP 800-185"
+
+[[algorithm]]
+id = "pbkdf2"
+name = "PBKDF2"
+family = "PBKDF2"
+primitive = "kdf"
+functions = ["keyderive"]
+quantum = "grover"
+classical = "acceptable"
+security = "digest"
+aliases = ["pbkdf2", "pbkdf2withhmacsha1", "pbkdf2withhmacsha256", "pbkdf2withhmacsha512"]
+oids = ["1.2.840.113549.1.5.12"]
+standard = "NIST SP 800-132"
+
+[[algorithm]]
+id = "hkdf"
+name = "HKDF"
+family = "HKDF"
+primitive = "kdf"
+functions = ["keyderive"]
+quantum = "grover"
+classical = "acceptable"
+security = "digest"
+aliases = ["hkdf"]
+standard = "RFC 5869"
+
+[[algorithm]]
+id = "scrypt"
+name = "scrypt"
+family = "scrypt"
+primitive = "kdf"
+functions = ["keyderive"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["scrypt"]
+standard = "RFC 7914"
+
+[[algorithm]]
+id = "argon2"
+name = "Argon2"
+family = "Argon2"
+primitive = "kdf"
+functions = ["keyderive"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["argon2", "argon2id", "argon2i", "argon2d"]
+standard = "RFC 9106"
+
+[[algorithm]]
+id = "bcrypt"
+name = "bcrypt"
+family = "bcrypt"
+primitive = "kdf"
+functions = ["keyderive"]
+quantum = "grover"
+classical = "acceptable"
+security = "fixed"
+strength = 128
+aliases = ["bcrypt"]
+
+[[algorithm]]
+id = "ctr-drbg"
+name = "CTR_DRBG"
+family = "DRBG"
+primitive = "drbg"
+functions = ["generate"]
+quantum = "grover"
+classical = "acceptable"
+security = "key-bits"
+aliases = ["ctr-drbg", "ctr_drbg", "ctrdrbg"]
+standard = "NIST SP 800-90A Rev1"
+
+[[algorithm]]
+id = "hash-drbg"
+name = "Hash_DRBG"
+family = "DRBG"
+primitive = "drbg"
+functions = ["generate"]
+quantum = "grover"
+classical = "acceptable"
+security = "digest"
+aliases = ["hash-drbg", "hash_drbg", "hashdrbg", "hmac-drbg", "hmac_drbg", "hmacdrbg"]
+standard = "NIST SP 800-90A Rev1"
+
+[[algorithm]]
+id = "dual-ec-drbg"
+name = "Dual_EC_DRBG"
+family = "DRBG"
+primitive = "drbg"
+functions = ["generate"]
+quantum = "shor"
+classical = "broken"
+security = "fixed"
+strength = 0
+aliases = ["dual-ec-drbg", "dual_ec_drbg", "dualecdrbg"]
+note = "Withdrawn from NIST SP 800-90A (2014): suspected backdoor."
+
+# ---------------------------------------------------------------------------------------------
+# Named elliptic curves. Strength per NIST SP 800-57 Pt1 Rev5 / SP 800-186.
+# ---------------------------------------------------------------------------------------------
+
+[[curve]]
+name = "P-192"
+aliases = ["p-192", "p192", "secp192r1", "prime192v1", "nistp192"]
+strength = 96
+oid = "1.2.840.10045.3.1.1"
+classical = "disallowed"
+
+[[curve]]
+name = "P-224"
+aliases = ["p-224", "p224", "secp224r1", "nistp224"]
+strength = 112
+oid = "1.3.132.0.33"
+classical = "acceptable"
+
+[[curve]]
+name = "P-256"
+aliases = ["p-256", "p256", "secp256r1", "prime256v1", "nistp256", "ecdsa-sha2-nistp256", "ecdh-sha2-nistp256"]
+strength = 128
+oid = "1.2.840.10045.3.1.7"
+classical = "acceptable"
+
+[[curve]]
+name = "P-384"
+aliases = ["p-384", "p384", "secp384r1", "nistp384", "ecdsa-sha2-nistp384", "ecdh-sha2-nistp384"]
+strength = 192
+oid = "1.3.132.0.34"
+classical = "acceptable"
+
+[[curve]]
+name = "P-521"
+aliases = ["p-521", "p521", "secp521r1", "nistp521", "ecdsa-sha2-nistp521", "ecdh-sha2-nistp521"]
+strength = 256
+oid = "1.3.132.0.35"
+classical = "acceptable"
+
+[[curve]]
+name = "secp256k1"
+aliases = ["secp256k1", "k-256", "k256", "p256k1", "secg-p256k1"]
+strength = 128
+oid = "1.3.132.0.10"
+classical = "acceptable"
+
+[[curve]]
+name = "brainpoolP256r1"
+aliases = ["brainpoolp256r1", "brainpool256r1", "bp256"]
+strength = 128
+oid = "1.3.36.3.3.2.8.1.1.7"
+classical = "acceptable"
+
+[[curve]]
+name = "brainpoolP384r1"
+aliases = ["brainpoolp384r1", "brainpool384r1", "bp384"]
+strength = 192
+oid = "1.3.36.3.3.2.8.1.1.11"
+classical = "acceptable"
+
+[[curve]]
+name = "brainpoolP512r1"
+aliases = ["brainpoolp512r1", "brainpool512r1", "bp512"]
+strength = 256
+oid = "1.3.36.3.3.2.8.1.1.13"
+classical = "acceptable"
+
+[[curve]]
+name = "curve25519"
+aliases = ["curve25519", "25519"]
+strength = 128
+classical = "acceptable"
+
+[[curve]]
+name = "curve448"
+aliases = ["curve448", "448", "goldilocks"]
+strength = 224
+classical = "acceptable"
+
+[[curve]]
+name = "SM2"
+aliases = ["sm2", "sm2p256v1"]
+strength = 128
+oid = "1.2.156.10197.1.301"
+classical = "acceptable"
+
+# Composite signature OIDs (hash + public-key algorithm) found in certificates and CMS.
+[[composite_oid]]
+oid = "1.2.840.113549.1.1.4"
+algorithm = "rsa"
+digest = "md5"
+[[composite_oid]]
+oid = "1.2.840.113549.1.1.5"
+algorithm = "rsa"
+digest = "sha-1"
+[[composite_oid]]
+oid = "1.2.840.113549.1.1.11"
+algorithm = "rsa"
+digest = "sha-256"
+[[composite_oid]]
+oid = "1.2.840.113549.1.1.12"
+algorithm = "rsa"
+digest = "sha-384"
+[[composite_oid]]
+oid = "1.2.840.113549.1.1.13"
+algorithm = "rsa"
+digest = "sha-512"
+[[composite_oid]]
+oid = "1.2.840.113549.1.1.14"
+algorithm = "rsa"
+digest = "sha-224"
+[[composite_oid]]
+oid = "1.2.840.10045.4.1"
+algorithm = "ecdsa"
+digest = "sha-1"
+[[composite_oid]]
+oid = "1.2.840.10045.4.3.1"
+algorithm = "ecdsa"
+digest = "sha-224"
+[[composite_oid]]
+oid = "1.2.840.10045.4.3.2"
+algorithm = "ecdsa"
+digest = "sha-256"
+[[composite_oid]]
+oid = "1.2.840.10045.4.3.3"
+algorithm = "ecdsa"
+digest = "sha-384"
+[[composite_oid]]
+oid = "1.2.840.10045.4.3.4"
+algorithm = "ecdsa"
+digest = "sha-512"
+[[composite_oid]]
+oid = "1.2.840.10040.4.3"
+algorithm = "dsa"
+digest = "sha-1"
+[[composite_oid]]
+oid = "2.16.840.1.101.3.4.3.2"
+algorithm = "dsa"
+digest = "sha-256"

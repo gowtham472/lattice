@@ -1,0 +1,1214 @@
+# LATTICE source rules: cryptographic APIs and how to read algorithms and parameters from calls.
+#
+# Every rule names the calls it matches (`callee` suffixes or a `callee_regex`), the API style
+# (drives crypto-agility), where the algorithm comes from (`algorithm` fixed, or `from` an
+# argument / keyword / object property / regex capture), and which parameters to extract.
+# Grammars: name | jca-cipher | group | curve | mode | digest | int | padding | version.
+# Rule ids are stable; bump `version` when a rule's meaning changes.
+
+version = "2026.09.1"
+
+# =============================================================================================
+# Java — JCA / JCE
+# =============================================================================================
+
+[[rule]]
+id = "java.jca.cipher"
+languages = ["java"]
+callee = ["Cipher.getInstance"]
+style = "provider"
+from = { arg = 0, grammar = "jca-cipher" }
+
+[[rule]]
+id = "java.jca.message-digest"
+languages = ["java"]
+callee = ["MessageDigest.getInstance"]
+style = "provider"
+function = "digest"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.signature"
+languages = ["java"]
+callee = ["Signature.getInstance"]
+style = "provider"
+primitive = "signature"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.key-pair-generator"
+languages = ["java"]
+callee = ["KeyPairGenerator.getInstance"]
+style = "provider"
+function = "keygen"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.key-generator"
+languages = ["java"]
+callee = ["KeyGenerator.getInstance"]
+style = "provider"
+function = "keygen"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.key-agreement"
+languages = ["java"]
+callee = ["KeyAgreement.getInstance"]
+style = "provider"
+primitive = "key-agree"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.key-factory"
+languages = ["java"]
+callee = ["KeyFactory.getInstance"]
+style = "provider"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.mac"
+languages = ["java"]
+callee = ["Mac.getInstance"]
+style = "provider"
+function = "tag"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.secret-key-factory"
+languages = ["java"]
+callee = ["SecretKeyFactory.getInstance"]
+style = "provider"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.kem"
+languages = ["java"]
+callee = ["KEM.getInstance"]
+style = "provider"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "java.jca.secret-key-spec"
+languages = ["java"]
+callee = ["SecretKeySpec"]
+style = "provider"
+from = { arg = 1, grammar = "name" }
+
+[[rule]]
+id = "java.jca.rsa-keygen-spec"
+languages = ["java"]
+callee = ["RSAKeyGenParameterSpec"]
+style = "provider"
+algorithm = "rsa"
+param = [{ name = "key-bits", arg = 0, grammar = "int" }]
+
+[[rule]]
+id = "java.jca.initialize"
+languages = ["java"]
+callee = ["*.initialize", "*.init"]
+style = "provider"
+kind = "refine"
+param = [
+  { name = "key-bits", arg = 0, grammar = "int" },
+  { name = "curve", arg = 0, grammar = "curve" },
+]
+
+[[rule]]
+id = "java.jsse.ssl-context"
+languages = ["java"]
+callee = ["SSLContext.getInstance"]
+style = "protocol"
+kind = "protocol-version"
+from = { arg = 0, grammar = "version" }
+
+[[rule]]
+id = "java.jsse.enabled-protocols"
+languages = ["java"]
+callee = ["*.setEnabledProtocols"]
+style = "protocol"
+kind = "protocol-version"
+from = { arg = 0, grammar = "version" }
+
+[[rule]]
+id = "java.jsse.enabled-cipher-suites"
+languages = ["java"]
+callee = ["*.setEnabledCipherSuites"]
+style = "protocol"
+kind = "cipher-list"
+from = { arg = 0 }
+
+# Bouncy Castle lightweight API: `new AESEngine()`, `new SHA1Digest()`, `new RSAEngine()`
+[[rule]]
+id = "java.bouncycastle.engine"
+languages = ["java"]
+callee_regex = '(?:^|\.)(?P<name>AES|DES|DESede|Blowfish|RC4|RC2|Twofish|Camellia|ARIA|SM4|Serpent|CAST5|IDEA|SEED|ChaCha|ChaCha7539|RSA|ElGamal)(?:Fast)?Engine$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "java.bouncycastle.digest"
+languages = ["java"]
+callee_regex = '(?:^|\.)(?P<name>MD5|MD4|SHA1|SHA224|SHA256|SHA384|SHA512|SHA3|SM3|RIPEMD160|Blake2b|Blake2s|Blake3|Keccak)Digest$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "java.bouncycastle.pqc"
+languages = ["java"]
+callee_regex = '(?:^|\.)(?P<name>MLKEM|MLDSA|SLHDSA|Falcon|Kyber|Dilithium|SPHINCSPlus)(?:KeyPairGenerator|Signer|KEMGenerator|KEMExtractor)$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+# =============================================================================================
+# C / C++ — OpenSSL
+# =============================================================================================
+
+[[rule]]
+id = "c.openssl.evp-cipher"
+languages = ["c"]
+callee_regex = '^EVP_(?P<name>(?:aes|aria|camellia|sm4|des|bf|cast5|rc2|rc4|idea|seed|chacha20)(?:_[a-z0-9]+)*)$'
+style = "provider"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "c.openssl.evp-digest"
+languages = ["c"]
+callee_regex = '^EVP_(?P<name>md4|md5|sha1|sha224|sha256|sha384|sha512|sha512_224|sha512_256|sha3_224|sha3_256|sha3_384|sha3_512|shake128|shake256|sm3|ripemd160|blake2b512|blake2s256)$'
+style = "provider"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "c.openssl.by-name"
+languages = ["c"]
+callee = ["EVP_get_cipherbyname", "EVP_get_digestbyname"]
+style = "provider"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "c.openssl3.fetch"
+languages = ["c"]
+callee = ["EVP_CIPHER_fetch", "EVP_MD_fetch", "EVP_MAC_fetch", "EVP_KDF_fetch", "EVP_SIGNATURE_fetch", "EVP_KEM_fetch", "EVP_KEYEXCH_fetch", "EVP_ASYM_CIPHER_fetch"]
+style = "provider"
+from = { arg = 1, grammar = "name" }
+
+[[rule]]
+id = "c.openssl3.pkey-from-name"
+languages = ["c"]
+callee = ["EVP_PKEY_CTX_new_from_name", "EVP_PKEY_Q_keygen"]
+style = "provider"
+function = "keygen"
+from = { arg = 2, grammar = "name" }
+param = [
+  { name = "key-bits", arg = 3, grammar = "int" },
+  { name = "curve", arg = 3, grammar = "curve" },
+]
+
+[[rule]]
+id = "c.openssl.pkey-ctx-id"
+languages = ["c"]
+callee = ["EVP_PKEY_CTX_new_id"]
+style = "provider"
+from = { arg = 0, grammar = "name", strip_prefix = ["EVP_PKEY_"] }
+
+[[rule]]
+id = "c.openssl.pkey-keygen-bits"
+languages = ["c"]
+callee = ["EVP_PKEY_CTX_set_rsa_keygen_bits", "EVP_PKEY_CTX_set_dsa_paramgen_bits", "EVP_PKEY_CTX_set_dh_paramgen_prime_len"]
+style = "provider"
+kind = "refine"
+receiver_arg = 0
+param = [{ name = "key-bits", arg = 1, grammar = "int" }]
+
+[[rule]]
+id = "c.openssl.pkey-curve"
+languages = ["c"]
+callee = ["EVP_PKEY_CTX_set_ec_paramgen_curve_nid"]
+style = "provider"
+kind = "refine"
+receiver_arg = 0
+param = [{ name = "curve", arg = 1, grammar = "curve", strip_prefix = ["NID_X9_62_", "NID_"] }]
+
+[[rule]]
+id = "c.openssl.rsa-generate"
+languages = ["c"]
+callee = ["RSA_generate_key"]
+style = "primitive"
+algorithm = "rsa"
+function = "keygen"
+param = [{ name = "key-bits", arg = 0, grammar = "int" }]
+
+[[rule]]
+id = "c.openssl.rsa-generate-ex"
+languages = ["c"]
+callee = ["RSA_generate_key_ex", "RSA_generate_multi_prime_key"]
+style = "primitive"
+algorithm = "rsa"
+function = "keygen"
+param = [{ name = "key-bits", arg = 1, grammar = "int" }]
+
+[[rule]]
+id = "c.openssl.rsa-primitive"
+languages = ["c"]
+callee = ["RSA_new", "RSA_public_encrypt", "RSA_private_decrypt", "RSA_private_encrypt", "RSA_public_decrypt", "RSA_sign", "RSA_verify", "RSA_padding_add_PKCS1_type_2"]
+style = "primitive"
+algorithm = "rsa"
+
+[[rule]]
+id = "c.openssl.dsa"
+languages = ["c"]
+callee = ["DSA_generate_parameters_ex"]
+style = "primitive"
+algorithm = "dsa"
+param = [{ name = "key-bits", arg = 1, grammar = "int" }]
+
+[[rule]]
+id = "c.openssl.dsa-primitive"
+languages = ["c"]
+callee = ["DSA_new", "DSA_sign", "DSA_verify", "DSA_do_sign", "DSA_do_verify"]
+style = "primitive"
+algorithm = "dsa"
+
+[[rule]]
+id = "c.openssl.dh"
+languages = ["c"]
+callee = ["DH_generate_parameters_ex"]
+style = "primitive"
+algorithm = "dh"
+param = [{ name = "key-bits", arg = 1, grammar = "int" }]
+
+[[rule]]
+id = "c.openssl.dh-primitive"
+languages = ["c"]
+callee = ["DH_new", "DH_generate_key", "DH_compute_key", "DH_get_2048_256", "DH_get_1024_160"]
+style = "primitive"
+algorithm = "dh"
+
+[[rule]]
+id = "c.openssl.ec-key-curve"
+languages = ["c"]
+callee = ["EC_KEY_new_by_curve_name", "EC_GROUP_new_by_curve_name"]
+style = "primitive"
+algorithm = "ecdsa"
+param = [{ name = "curve", arg = 0, grammar = "curve", strip_prefix = ["NID_X9_62_", "NID_"] }]
+
+[[rule]]
+id = "c.openssl.ecdsa"
+languages = ["c"]
+callee = ["ECDSA_sign", "ECDSA_verify", "ECDSA_do_sign", "ECDSA_do_verify"]
+style = "primitive"
+algorithm = "ecdsa"
+primitive = "signature"
+
+[[rule]]
+id = "c.openssl.ecdh"
+languages = ["c"]
+callee = ["ECDH_compute_key"]
+style = "primitive"
+algorithm = "ecdh"
+
+[[rule]]
+id = "c.openssl.aes-lowlevel"
+languages = ["c"]
+callee = ["AES_set_encrypt_key", "AES_set_decrypt_key"]
+style = "primitive"
+algorithm = "aes"
+param = [{ name = "key-bits", arg = 1, grammar = "int" }]
+
+[[rule]]
+id = "c.openssl.aes-lowlevel-mode"
+languages = ["c"]
+callee_regex = '^AES_(?P<mode>ecb|cbc|cfb128|cfb8|cfb1|ofb128|ctr128|ige|wrap|unwrap)_(?:encrypt|key)$'
+style = "primitive"
+algorithm = "aes"
+param = [{ name = "mode", capture = "mode", grammar = "mode" }]
+
+[[rule]]
+id = "c.openssl.des-lowlevel"
+languages = ["c"]
+callee_regex = '^DES_(?:set_key|set_key_checked|set_key_unchecked|ecb_encrypt|ncbc_encrypt|cbc_encrypt|key_sched)$'
+style = "primitive"
+algorithm = "des"
+
+[[rule]]
+id = "c.openssl.3des-lowlevel"
+languages = ["c"]
+callee_regex = '^DES_ede3_(?:cbc_encrypt|ecb_encrypt|cfb64_encrypt|ofb64_encrypt)$'
+style = "primitive"
+algorithm = "3des"
+
+[[rule]]
+id = "c.openssl.digest-lowlevel"
+languages = ["c"]
+callee_regex = '^(?P<name>MD4|MD5|SHA1|SHA224|SHA256|SHA384|SHA512|RIPEMD160)(?:_Init|_Update|_Final)?$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "c.openssl.stream-lowlevel"
+languages = ["c"]
+callee_regex = '^(?P<name>RC4|BF|RC2|CAST|IDEA)_(?:set_key|encrypt|ecb_encrypt|cbc_encrypt)$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "c.openssl.hmac-init"
+languages = ["c"]
+callee = ["HMAC_Init_ex"]
+style = "primitive"
+algorithm = "hmac"
+# HMAC_Init_ex(ctx, key, key_len, md, impl)
+param = [{ name = "digest", arg = 3, grammar = "digest", strip_prefix = ["EVP_"] }]
+
+[[rule]]
+id = "c.openssl.hmac-oneshot"
+languages = ["c"]
+# HMAC(md, key, key_len, data, data_len, out, out_len)
+callee = ["HMAC"]
+style = "primitive"
+algorithm = "hmac"
+param = [{ name = "digest", arg = 0, grammar = "digest", strip_prefix = ["EVP_"] }]
+
+[[rule]]
+id = "c.openssl.pbkdf2"
+languages = ["c"]
+callee = ["PKCS5_PBKDF2_HMAC"]
+style = "primitive"
+algorithm = "pbkdf2"
+param = [{ name = "digest", arg = 5, grammar = "digest", strip_prefix = ["EVP_"] }]
+
+[[rule]]
+id = "c.openssl.pbkdf2-sha1"
+languages = ["c"]
+callee = ["PKCS5_PBKDF2_HMAC_SHA1"]
+style = "primitive"
+algorithm = "pbkdf2"
+params = { digest = "sha-1" }
+
+[[rule]]
+id = "c.openssl.ssl-method"
+languages = ["c"]
+callee_regex = '^(?P<version>SSLv2|SSLv3|TLSv1|TLSv1_1|TLSv1_2|DTLSv1|DTLSv1_2)_(?:client_|server_)?method$'
+style = "protocol"
+kind = "protocol-version"
+from = { capture = "version", grammar = "version" }
+
+[[rule]]
+id = "c.openssl.proto-version"
+languages = ["c"]
+callee = ["SSL_CTX_set_min_proto_version", "SSL_set_min_proto_version", "SSL_CTX_set_max_proto_version"]
+style = "protocol"
+kind = "protocol-version"
+from = { arg = 1, grammar = "version" }
+
+[[rule]]
+id = "c.openssl.cipher-list"
+languages = ["c"]
+callee = ["SSL_CTX_set_cipher_list", "SSL_set_cipher_list", "SSL_CTX_set_ciphersuites", "SSL_set_ciphersuites"]
+style = "protocol"
+kind = "cipher-list"
+from = { arg = 1 }
+
+[[rule]]
+id = "c.openssl.groups"
+languages = ["c"]
+callee = ["SSL_CTX_set1_groups_list", "SSL_set1_groups_list", "SSL_CTX_set1_curves_list", "SSL_set1_curves_list"]
+style = "protocol"
+kind = "group-list"
+from = { arg = 1 }
+
+# ---------------------------------------------------------------------------------------------
+# C / C++ — libsodium, mbedTLS, Windows CNG
+# ---------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "c.sodium.box"
+languages = ["c"]
+callee_regex = '^crypto_(?:box|kx|scalarmult)(?:_[a-z0-9]+)*$'
+style = "primitive"
+algorithm = "x25519"
+
+[[rule]]
+id = "c.sodium.sign"
+languages = ["c"]
+callee_regex = '^crypto_sign(?:_[a-z0-9]+)*$'
+style = "primitive"
+algorithm = "ed25519"
+
+[[rule]]
+id = "c.sodium.aes-gcm"
+languages = ["c"]
+callee_regex = '^crypto_aead_aes256gcm_[a-z_]+$'
+style = "primitive"
+algorithm = "aes"
+params = { keyBits = 256, mode = "gcm" }
+
+[[rule]]
+id = "c.sodium.chacha"
+languages = ["c"]
+callee_regex = '^crypto_aead_x?chacha20poly1305_(?:ietf_)?[a-z_]+$'
+style = "primitive"
+algorithm = "chacha20-poly1305"
+
+[[rule]]
+id = "c.sodium.generichash"
+languages = ["c"]
+callee_regex = '^crypto_generichash(?:_[a-z0-9]+)*$'
+style = "primitive"
+algorithm = "blake2b"
+
+[[rule]]
+id = "c.sodium.pwhash"
+languages = ["c"]
+callee_regex = '^crypto_pwhash(?:_str)?(?:_verify)?$'
+style = "primitive"
+algorithm = "argon2"
+
+[[rule]]
+id = "c.mbedtls.aes"
+languages = ["c"]
+callee = ["mbedtls_aes_setkey_enc", "mbedtls_aes_setkey_dec"]
+style = "primitive"
+algorithm = "aes"
+param = [{ name = "key-bits", arg = 2, grammar = "int" }]
+
+[[rule]]
+id = "c.mbedtls.rsa-gen"
+languages = ["c"]
+callee = ["mbedtls_rsa_gen_key"]
+style = "primitive"
+algorithm = "rsa"
+function = "keygen"
+param = [{ name = "key-bits", arg = 3, grammar = "int" }]
+
+[[rule]]
+id = "c.mbedtls.ecp"
+languages = ["c"]
+callee = ["mbedtls_ecp_group_load"]
+style = "primitive"
+algorithm = "ecdsa"
+param = [{ name = "curve", arg = 1, grammar = "curve", strip_prefix = ["MBEDTLS_ECP_DP_"] }]
+
+[[rule]]
+id = "c.mbedtls.digest"
+languages = ["c"]
+callee_regex = '^mbedtls_(?P<name>md5|sha1|sha256|sha512)(?:_ret|_starts|_update|_finish)?$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "c.cng.provider"
+languages = ["c"]
+callee = ["BCryptOpenAlgorithmProvider"]
+style = "provider"
+from = { arg = 1, grammar = "name", strip_prefix = ["BCRYPT_"], strip_suffix = ["_ALGORITHM"] }
+
+# =============================================================================================
+# Python — hashlib, hmac, cryptography, PyCryptodome, PyJWT, ssl
+# =============================================================================================
+
+[[rule]]
+id = "python.hashlib.named"
+languages = ["python"]
+callee_regex = '^hashlib\.(?P<name>md5|sha1|sha224|sha256|sha384|sha512|sha3_224|sha3_256|sha3_384|sha3_512|shake_128|shake_256|blake2b|blake2s)$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "python.hashlib.new"
+languages = ["python"]
+callee = ["hashlib.new"]
+style = "provider"
+function = "digest"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "python.hashlib.pbkdf2"
+languages = ["python"]
+callee = ["hashlib.pbkdf2_hmac"]
+style = "provider"
+algorithm = "pbkdf2"
+param = [{ name = "digest", arg = 0, grammar = "digest" }]
+
+[[rule]]
+id = "python.hmac"
+languages = ["python"]
+callee = ["hmac.new", "hmac.digest"]
+style = "provider"
+algorithm = "hmac"
+param = [
+  { name = "digest", arg = 2, grammar = "digest" },
+  { name = "digest", keyword = "digestmod", grammar = "digest" },
+]
+
+[[rule]]
+id = "python.cryptography.rsa-generate"
+languages = ["python"]
+callee = ["rsa.generate_private_key"]
+style = "primitive"
+algorithm = "rsa"
+function = "keygen"
+param = [
+  { name = "key-bits", keyword = "key_size", grammar = "int" },
+  { name = "key-bits", arg = 1, grammar = "int" },
+]
+
+[[rule]]
+id = "python.cryptography.dsa-generate"
+languages = ["python"]
+callee = ["dsa.generate_private_key"]
+style = "primitive"
+algorithm = "dsa"
+param = [
+  { name = "key-bits", keyword = "key_size", grammar = "int" },
+  { name = "key-bits", arg = 0, grammar = "int" },
+]
+
+[[rule]]
+id = "python.cryptography.dh-generate"
+languages = ["python"]
+callee = ["dh.generate_parameters"]
+style = "primitive"
+algorithm = "dh"
+param = [
+  { name = "key-bits", keyword = "key_size", grammar = "int" },
+  { name = "key-bits", arg = 1, grammar = "int" },
+]
+
+[[rule]]
+id = "python.cryptography.ec-generate"
+languages = ["python"]
+callee = ["ec.generate_private_key", "ec.derive_private_key"]
+style = "primitive"
+algorithm = "ecdsa"
+function = "keygen"
+param = [
+  { name = "curve", arg = 0, grammar = "curve" },
+  { name = "curve", keyword = "curve", grammar = "curve" },
+  { name = "curve", arg = 1, grammar = "curve" },
+]
+
+[[rule]]
+id = "python.cryptography.ecdh"
+languages = ["python"]
+callee = ["ec.ECDH"]
+style = "primitive"
+algorithm = "ecdh"
+
+[[rule]]
+id = "python.cryptography.ed25519"
+languages = ["python"]
+callee_regex = '(?:^|\.)(?P<name>Ed25519|Ed448|X25519|X448)PrivateKey\.(?:generate|from_private_bytes)$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "python.cryptography.cipher"
+languages = ["python"]
+callee = ["Cipher"]
+style = "provider"
+from = { arg = 0, grammar = "name", strip_prefix = ["algorithms."] }
+param = [{ name = "mode", arg = 1, grammar = "mode", strip_prefix = ["modes."] }]
+
+[[rule]]
+id = "python.cryptography.aead"
+languages = ["python"]
+callee_regex = '(?:^|\.)(?P<name>AESGCM|AESGCMSIV|AESCCM|AESOCB3|AESSIV|ChaCha20Poly1305)$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "python.cryptography.hashes"
+languages = ["python"]
+callee_regex = '^hashes\.(?P<name>MD5|SHA1|SHA224|SHA256|SHA384|SHA512|SHA512_256|SHA3_256|SHA3_384|SHA3_512|SHAKE128|SHAKE256|BLAKE2b|BLAKE2s|SM3)$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "python.cryptography.pbkdf2"
+languages = ["python"]
+callee = ["PBKDF2HMAC"]
+style = "primitive"
+algorithm = "pbkdf2"
+param = [{ name = "digest", keyword = "algorithm", grammar = "digest", strip_prefix = ["hashes."] }]
+
+[[rule]]
+id = "python.cryptography.hkdf"
+languages = ["python"]
+callee = ["HKDF", "HKDFExpand"]
+style = "primitive"
+algorithm = "hkdf"
+param = [{ name = "digest", keyword = "algorithm", grammar = "digest", strip_prefix = ["hashes."] }]
+
+[[rule]]
+id = "python.cryptography.fernet"
+languages = ["python"]
+callee = ["Fernet", "MultiFernet"]
+style = "primitive"
+# Fernet is fixed by its specification: AES-128-CBC with HMAC-SHA256.
+algorithms = ["aes", "hmac"]
+params = { keyBits = 128, mode = "cbc", digest = "sha-256" }
+
+[[rule]]
+id = "python.pycryptodome.new"
+languages = ["python"]
+callee_regex = '(?:^|\.)(?P<name>AES|DES|DES3|ARC4|ARC2|Blowfish|CAST|ChaCha20|ChaCha20_Poly1305|Salsa20)\.new$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+param = [{ name = "mode", arg = 1, grammar = "mode", strip_prefix = ["AES.MODE_", "DES.MODE_", "DES3.MODE_", "Blowfish.MODE_", "MODE_"] }]
+
+[[rule]]
+id = "python.pycryptodome.hash"
+languages = ["python"]
+callee_regex = '(?:^|\.)(?P<name>MD5|MD4|SHA1|SHA224|SHA256|SHA384|SHA512|SHA3_256|SHA3_512|RIPEMD160|BLAKE2b|BLAKE2s)\.new$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "python.pycryptodome.rsa"
+languages = ["python"]
+callee = ["RSA.generate"]
+style = "primitive"
+algorithm = "rsa"
+param = [{ name = "key-bits", arg = 0, grammar = "int" }]
+
+[[rule]]
+id = "python.pycryptodome.ecc"
+languages = ["python"]
+callee = ["ECC.generate"]
+style = "primitive"
+algorithm = "ecdsa"
+param = [{ name = "curve", keyword = "curve", grammar = "curve" }]
+
+[[rule]]
+id = "python.jwt"
+languages = ["python"]
+callee = ["jwt.encode", "jwt.decode"]
+style = "protocol"
+from = { keyword = "algorithm", grammar = "name" }
+
+[[rule]]
+id = "python.jwt.algorithms"
+languages = ["python"]
+callee = ["jwt.decode"]
+style = "protocol"
+from = { keyword = "algorithms", grammar = "name" }
+
+[[rule]]
+id = "python.ssl.context"
+languages = ["python"]
+callee = ["ssl.SSLContext", "ssl.wrap_socket"]
+style = "protocol"
+kind = "protocol-version"
+from = { arg = 0, grammar = "version" }
+
+[[rule]]
+id = "python.ssl.ciphers"
+languages = ["python"]
+callee = ["*.set_ciphers"]
+style = "protocol"
+kind = "cipher-list"
+from = { arg = 0 }
+
+# =============================================================================================
+# Go — crypto/*
+# =============================================================================================
+
+[[rule]]
+id = "go.hash"
+languages = ["go"]
+callee_regex = '^(?P<name>md5|sha1|sha256|sha512|sha3)\.(?:New|Sum|Sum256|Sum224|Sum512|New224|New256|New384|New512|Sum384|New512_256)$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "go.aes"
+languages = ["go"]
+callee = ["aes.NewCipher"]
+style = "primitive"
+algorithm = "aes"
+
+[[rule]]
+id = "go.des"
+languages = ["go"]
+callee = ["des.NewCipher"]
+style = "primitive"
+algorithm = "des"
+
+[[rule]]
+id = "go.3des"
+languages = ["go"]
+callee = ["des.NewTripleDESCipher"]
+style = "primitive"
+algorithm = "3des"
+
+[[rule]]
+id = "go.rc4"
+languages = ["go"]
+callee = ["rc4.NewCipher"]
+style = "primitive"
+algorithm = "rc4"
+
+[[rule]]
+id = "go.cipher-mode"
+languages = ["go"]
+callee_regex = '^cipher\.New(?P<mode>GCM|CBCEncrypter|CBCDecrypter|CTR|OFB|CFBEncrypter|CFBDecrypter|GCMWithNonceSize|GCMWithTagSize)$'
+style = "primitive"
+kind = "refine"
+receiver_arg = 0
+param = [{ name = "mode", capture = "mode", grammar = "mode", strip_suffix = ["Encrypter", "Decrypter", "WithNonceSize", "WithTagSize"] }]
+
+[[rule]]
+id = "go.rsa-generate"
+languages = ["go"]
+callee = ["rsa.GenerateKey", "rsa.GenerateMultiPrimeKey"]
+style = "primitive"
+algorithm = "rsa"
+function = "keygen"
+param = [{ name = "key-bits", arg = 1, grammar = "int" }]
+
+[[rule]]
+id = "go.rsa-sign"
+languages = ["go"]
+callee = ["rsa.SignPKCS1v15", "rsa.VerifyPKCS1v15", "rsa.SignPSS", "rsa.VerifyPSS"]
+style = "primitive"
+algorithm = "rsa"
+primitive = "signature"
+param = [
+  { name = "digest", arg = 2, grammar = "digest" },
+  { name = "digest", arg = 1, grammar = "digest" },
+]
+
+[[rule]]
+id = "go.rsa-encrypt"
+languages = ["go"]
+callee = ["rsa.EncryptPKCS1v15", "rsa.DecryptPKCS1v15", "rsa.EncryptOAEP", "rsa.DecryptOAEP"]
+style = "primitive"
+algorithm = "rsa"
+primitive = "pke"
+
+[[rule]]
+id = "go.ecdsa"
+languages = ["go"]
+callee = ["ecdsa.GenerateKey"]
+style = "primitive"
+algorithm = "ecdsa"
+param = [{ name = "curve", arg = 0, grammar = "curve", strip_prefix = ["elliptic."] }]
+
+[[rule]]
+id = "go.ecdsa-sign"
+languages = ["go"]
+callee = ["ecdsa.Sign", "ecdsa.Verify", "ecdsa.SignASN1", "ecdsa.VerifyASN1"]
+style = "primitive"
+algorithm = "ecdsa"
+
+[[rule]]
+id = "go.ecdh"
+languages = ["go"]
+callee_regex = '^ecdh\.(?P<curve>P256|P384|P521|X25519)$'
+style = "primitive"
+from = { capture = "curve", grammar = "group" }
+
+[[rule]]
+id = "go.ed25519"
+languages = ["go"]
+callee = ["ed25519.GenerateKey", "ed25519.Sign", "ed25519.Verify", "ed25519.NewKeyFromSeed"]
+style = "primitive"
+algorithm = "ed25519"
+
+[[rule]]
+id = "go.mlkem"
+languages = ["go"]
+callee_regex = '^mlkem\.(?:GenerateKey|NewDecapsulationKey|NewEncapsulationKey)(?P<set>768|1024)$'
+style = "primitive"
+algorithm = "ml-kem"
+param = [{ name = "parameter-set", capture = "set" }]
+
+[[rule]]
+id = "go.hmac"
+languages = ["go"]
+callee = ["hmac.New"]
+style = "primitive"
+algorithm = "hmac"
+param = [{ name = "digest", arg = 0, grammar = "digest" }]
+
+[[rule]]
+id = "go.pbkdf2"
+languages = ["go"]
+callee = ["pbkdf2.Key"]
+style = "primitive"
+algorithm = "pbkdf2"
+param = [
+  { name = "digest", arg = 4, grammar = "digest" },
+  { name = "digest", arg = 0, grammar = "digest" },
+]
+
+# =============================================================================================
+# JavaScript / TypeScript — Node crypto, WebCrypto, jsonwebtoken, crypto-js, forge
+# =============================================================================================
+
+[[rule]]
+id = "js.node.hash"
+languages = ["javascript"]
+callee = ["crypto.createHash", "createHash"]
+style = "provider"
+function = "digest"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "js.node.hmac"
+languages = ["javascript"]
+callee = ["crypto.createHmac", "createHmac"]
+style = "provider"
+algorithm = "hmac"
+param = [{ name = "digest", arg = 0, grammar = "digest" }]
+
+[[rule]]
+id = "js.node.cipher"
+languages = ["javascript"]
+callee = ["crypto.createCipheriv", "crypto.createDecipheriv", "createCipheriv", "createDecipheriv", "crypto.createCipher", "crypto.createDecipher"]
+style = "provider"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "js.node.keypair"
+languages = ["javascript"]
+callee = ["crypto.generateKeyPairSync", "crypto.generateKeyPair", "generateKeyPairSync", "generateKeyPair"]
+style = "provider"
+function = "keygen"
+from = { arg = 0, grammar = "name" }
+param = [
+  { name = "key-bits", arg = 1, property = "modulusLength", grammar = "int" },
+  { name = "curve", arg = 1, property = "namedCurve", grammar = "curve" },
+]
+
+[[rule]]
+id = "js.node.sign"
+languages = ["javascript"]
+callee = ["crypto.createSign", "crypto.createVerify", "createSign", "createVerify"]
+style = "provider"
+primitive = "signature"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "js.node.ecdh"
+languages = ["javascript"]
+callee = ["crypto.createECDH", "createECDH"]
+style = "provider"
+from = { arg = 0, grammar = "group" }
+
+[[rule]]
+id = "js.node.dh"
+languages = ["javascript"]
+callee = ["crypto.createDiffieHellman", "crypto.getDiffieHellman"]
+style = "provider"
+algorithm = "dh"
+param = [{ name = "key-bits", arg = 0, grammar = "int" }]
+
+[[rule]]
+id = "js.node.pbkdf2"
+languages = ["javascript"]
+callee = ["crypto.pbkdf2", "crypto.pbkdf2Sync", "pbkdf2", "pbkdf2Sync"]
+style = "provider"
+algorithm = "pbkdf2"
+param = [{ name = "digest", arg = 4, grammar = "digest" }]
+
+[[rule]]
+id = "js.node.hkdf"
+languages = ["javascript"]
+callee = ["crypto.hkdf", "crypto.hkdfSync"]
+style = "provider"
+algorithm = "hkdf"
+param = [{ name = "digest", arg = 0, grammar = "digest" }]
+
+[[rule]]
+id = "js.node.scrypt"
+languages = ["javascript"]
+callee = ["crypto.scrypt", "crypto.scryptSync"]
+style = "provider"
+algorithm = "scrypt"
+
+[[rule]]
+id = "js.webcrypto.algorithm-object"
+languages = ["javascript"]
+callee = ["subtle.generateKey", "subtle.importKey", "subtle.encrypt", "subtle.decrypt", "subtle.sign", "subtle.verify", "subtle.deriveKey", "subtle.deriveBits", "subtle.wrapKey", "subtle.unwrapKey"]
+style = "provider"
+from = { property = "name", grammar = "name" }
+param = [
+  { name = "key-bits", property = "modulusLength", grammar = "int" },
+  { name = "key-bits", property = "length", grammar = "int" },
+  { name = "curve", property = "namedCurve", grammar = "curve" },
+  { name = "digest", property = "hash", grammar = "digest" },
+]
+
+[[rule]]
+id = "js.webcrypto.digest"
+languages = ["javascript"]
+callee = ["subtle.digest"]
+style = "provider"
+function = "digest"
+from = { arg = 0, grammar = "name" }
+
+[[rule]]
+id = "js.jsonwebtoken"
+languages = ["javascript"]
+callee = ["jwt.sign", "jwt.verify", "jsonwebtoken.sign", "jsonwebtoken.verify"]
+style = "protocol"
+from = { property = "algorithm", grammar = "name" }
+
+[[rule]]
+id = "js.jsonwebtoken.algorithms"
+languages = ["javascript"]
+callee = ["jwt.verify", "jsonwebtoken.verify"]
+style = "protocol"
+from = { property = "algorithms", grammar = "name" }
+
+[[rule]]
+id = "js.cryptojs"
+languages = ["javascript"]
+callee_regex = '^CryptoJS\.(?P<name>AES|DES|TripleDES|RC4|Rabbit|MD5|SHA1|SHA224|SHA256|SHA384|SHA512|SHA3|RIPEMD160|HmacMD5|HmacSHA1|HmacSHA256|HmacSHA512|PBKDF2)(?:\.encrypt|\.decrypt)?$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "js.node.tls-options"
+languages = ["javascript"]
+callee = ["tls.createServer", "tls.connect", "https.createServer", "tls.createSecureContext"]
+style = "protocol"
+kind = "cipher-list"
+from = { property = "ciphers" }
+
+[[rule]]
+id = "js.node.tls-min-version"
+languages = ["javascript"]
+callee = ["tls.createServer", "tls.connect", "https.createServer", "tls.createSecureContext"]
+style = "protocol"
+kind = "protocol-version"
+from = { property = "minVersion", grammar = "version" }
+
+[[rule]]
+id = "js.forge.rsa"
+languages = ["javascript"]
+callee = ["rsa.generateKeyPair"]
+style = "primitive"
+algorithm = "rsa"
+param = [
+  { name = "key-bits", property = "bits", grammar = "int" },
+  { name = "key-bits", arg = 0, grammar = "int" },
+]
+
+# =============================================================================================
+# Rust — RustCrypto, ring, openssl crate
+# =============================================================================================
+
+[[rule]]
+id = "rust.rustcrypto.aead"
+languages = ["rust"]
+callee_regex = '(?:^|\.)(?P<name>Aes128Gcm|Aes256Gcm|Aes128GcmSiv|Aes256GcmSiv|Aes128Ccm|Aes256Ccm|ChaCha20Poly1305|XChaCha20Poly1305)\.(?:new|new_from_slice|generate_key)$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "rust.rustcrypto.hash"
+languages = ["rust"]
+callee_regex = '(?:^|\.)(?P<name>Md5|Sha1|Sha224|Sha256|Sha384|Sha512|Sha3_256|Sha3_384|Sha3_512|Blake2b512|Blake2s256|Ripemd160|Sm3)\.(?:new|digest|new_with_prefix)$'
+style = "primitive"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "rust.rustcrypto.md5-compute"
+languages = ["rust"]
+callee = ["md5.compute"]
+style = "primitive"
+algorithm = "md5"
+
+[[rule]]
+id = "rust.rustcrypto.rsa"
+languages = ["rust"]
+callee = ["RsaPrivateKey.new"]
+style = "primitive"
+algorithm = "rsa"
+function = "keygen"
+param = [{ name = "key-bits", arg = 1, grammar = "int" }]
+
+[[rule]]
+id = "rust.rustcrypto.pqc"
+languages = ["rust"]
+callee_regex = '(?:^|\.)(?P<name>MlKem512|MlKem768|MlKem1024|MlDsa44|MlDsa65|MlDsa87)\.[a-z_]+$'
+style = "primitive"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "rust.openssl.symm"
+languages = ["rust"]
+callee_regex = '(?:^|\.)Cipher\.(?P<name>aes_128_[a-z0-9]+|aes_192_[a-z0-9]+|aes_256_[a-z0-9]+|des_[a-z0-9_]+|bf_[a-z0-9]+|rc4|chacha20|chacha20_poly1305)$'
+style = "provider"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "rust.openssl.digest"
+languages = ["rust"]
+callee_regex = '(?:^|\.)MessageDigest\.(?P<name>md5|sha1|sha224|sha256|sha384|sha512|sha3_256|sha3_512|sm3)$'
+style = "provider"
+function = "digest"
+from = { capture = "name", grammar = "name" }
+
+[[rule]]
+id = "rust.openssl.rsa"
+languages = ["rust"]
+callee = ["Rsa.generate"]
+style = "primitive"
+algorithm = "rsa"
+param = [{ name = "key-bits", arg = 0, grammar = "int" }]
+
+[[rule]]
+id = "rust.ring.algorithm-constant"
+languages = ["rust"]
+callee = ["UnboundKey.new", "digest.digest", "hmac.Key.new", "Key.new", "agreement.EphemeralPrivateKey.generate", "EphemeralPrivateKey.generate", "signature.EcdsaKeyPair.from_pkcs8"]
+style = "provider"
+from = { arg = 0, grammar = "name", strip_prefix = ["aead.", "digest.", "hmac.", "agreement.", "signature."] }
+
+# =============================================================================================
+# C# — .NET System.Security.Cryptography
+# =============================================================================================
+
+[[rule]]
+id = "csharp.create"
+languages = ["csharp"]
+callee_regex = '(?:^|\.)(?P<name>Aes|AesGcm|AesCcm|ChaCha20Poly1305|DES|TripleDES|RC2|Rijndael|RSA|DSA|ECDsa|ECDiffieHellman|MD5|SHA1|SHA256|SHA384|SHA512|SHA3_256|SHA3_384|SHA3_512|HMACSHA1|HMACSHA256|HMACSHA384|HMACSHA512|HMACMD5)\.(?:Create|HashData|TryHashData)$'
+style = "provider"
+from = { capture = "name", grammar = "name" }
+param = [
+  { name = "key-bits", arg = 0, grammar = "int" },
+  { name = "curve", arg = 0, grammar = "curve", strip_prefix = ["ECCurve.NamedCurves."] },
+]
+
+[[rule]]
+id = "csharp.constructor"
+languages = ["csharp"]
+callee_regex = '(?:^|\.)(?P<name>AesGcm|AesCcm|ChaCha20Poly1305|HMACSHA1|HMACSHA256|HMACSHA384|HMACSHA512|HMACMD5|RSACryptoServiceProvider|DSACryptoServiceProvider|TripleDESCryptoServiceProvider|DESCryptoServiceProvider|RC2CryptoServiceProvider|MD5CryptoServiceProvider|SHA1CryptoServiceProvider|SHA1Managed|SHA256Managed|RijndaelManaged|AesManaged|AesCryptoServiceProvider)$'
+style = "primitive"
+from = { capture = "name", grammar = "name", strip_suffix = ["CryptoServiceProvider", "Managed"] }
+param = [{ name = "key-bits", arg = 0, grammar = "int" }]
+
+[[rule]]
+id = "csharp.rfc2898"
+languages = ["csharp"]
+callee = ["Rfc2898DeriveBytes", "Rfc2898DeriveBytes.Pbkdf2"]
+style = "primitive"
+algorithm = "pbkdf2"
+# The constructor's default digest is SHA-1 when none is passed.
+params = { digest = "sha-1" }
+param = [
+  { name = "digest", arg = 3, grammar = "digest", strip_prefix = ["HashAlgorithmName."] },
+  { name = "digest", arg = 4, grammar = "digest", strip_prefix = ["HashAlgorithmName."] },
+]
+
+[[rule]]
+id = "csharp.pqc"
+languages = ["csharp"]
+callee = ["MLKem.GenerateKey", "MLDsa.GenerateKey", "SlhDsa.GenerateKey"]
+style = "provider"
+from = { arg = 0, grammar = "name", strip_prefix = ["MLKemAlgorithm.", "MLDsaAlgorithm.", "SlhDsaAlgorithm."] }
+
+[[rule]]
+id = "csharp.cipher-mode"
+languages = ["csharp"]
+kind = "assign"
+property = ["Mode"]
+style = "provider"
+param = [{ name = "mode", value = true, grammar = "mode", strip_prefix = ["CipherMode."] }]
+
+[[rule]]
+id = "csharp.key-size"
+languages = ["csharp"]
+kind = "assign"
+property = ["KeySize"]
+style = "provider"
+param = [{ name = "key-bits", value = true, grammar = "int" }]
+
+# =============================================================================================
+# Imports: a cryptographic module brought in, whether or not a call was matched.
+# Weak evidence (Capable at most) but it catches wrappers the call rules do not know.
+# =============================================================================================
+
+[[import]]
+id = "go.import.md5"
+languages = ["go"]
+module = ["crypto/md5"]
+algorithm = "md5"
+
+[[import]]
+id = "go.import.sha1"
+languages = ["go"]
+module = ["crypto/sha1"]
+algorithm = "sha-1"
+
+[[import]]
+id = "go.import.des"
+languages = ["go"]
+module = ["crypto/des"]
+algorithm = "des"
+
+[[import]]
+id = "go.import.rc4"
+languages = ["go"]
+module = ["crypto/rc4"]
+algorithm = "rc4"
+
+[[import]]
+id = "go.import.dsa"
+languages = ["go"]
+module = ["crypto/dsa"]
+algorithm = "dsa"
+
+[[import]]
+id = "go.import.mlkem"
+languages = ["go"]
+module = ["crypto/mlkem"]
+algorithm = "ml-kem"
+
+[[import]]
+id = "python.import.pycryptodome-des"
+languages = ["python"]
+module = ["Crypto/Cipher/DES", "Cryptodome/Cipher/DES"]
+algorithm = "des"
+
+[[import]]
+id = "python.import.pycryptodome-arc4"
+languages = ["python"]
+module = ["Crypto/Cipher/ARC4", "Cryptodome/Cipher/ARC4"]
+algorithm = "rc4"
+
+[[import]]
+id = "python.import.pycryptodome-md5"
+languages = ["python"]
+module = ["Crypto/Hash/MD5", "Cryptodome/Hash/MD5"]
+algorithm = "md5"
+
+[[import]]
+id = "c.import.openssl-md5"
+languages = ["c"]
+module = ["openssl/md5.h"]
+algorithm = "md5"
+
+[[import]]
+id = "c.import.openssl-des"
+languages = ["c"]
+module = ["openssl/des.h"]
+algorithm = "des"
+
+[[import]]
+id = "c.import.openssl-rc4"
+languages = ["c"]
+module = ["openssl/rc4.h"]
+algorithm = "rc4"

@@ -1,0 +1,78 @@
+# Cryptographic libraries LATTICE can identify in binaries, and the first version of each that
+# ships standardised post-quantum algorithms. Used for the "dependency PQC-ready" factor of the
+# Crypto-Agility Score: migrating is a configuration change when the library already has ML-KEM.
+#
+# `pattern` is a regex over printable strings in the binary; the named group `version` is the
+# version. `soname` matches linked library names (DT_NEEDED, PE imports, Mach-O load commands).
+# `packages` matches OS package names in container images (dpkg status, apk installed); the
+# package version (epoch and distribution revision stripped) is the library version.
+
+version = "2026.09.1"
+
+[[library]]
+name = "OpenSSL"
+pattern = 'OpenSSL (?P<version>\d+\.\d+\.\d+[a-z]?)(?:[-\s]|$)'
+soname = ['^libssl\.so', '^libcrypto\.so', '^libssl-\d', '^libcrypto-\d', '^libssl\.\d+\.dylib', '^libcrypto\.\d+\.dylib']
+packages = ['^openssl$', '^libssl\d', '^libssl$', '^openssl-libs$', '^libcrypto\d']
+pqc_since = "3.5.0"
+basis = "OpenSSL 3.5.0 (April 2025) ships ML-KEM, ML-DSA and SLH-DSA, and X25519MLKEM768 by default"
+
+[[library]]
+name = "BoringSSL"
+pattern = '(?P<version>BoringSSL)'
+pqc_since = "any"
+basis = "BoringSSL ships ML-KEM and X25519MLKEM768 (Chrome 131+)"
+
+[[library]]
+name = "LibreSSL"
+pattern = 'LibreSSL (?P<version>\d+\.\d+\.\d+)'
+packages = ['^libressl']
+pqc_since = "4.1.0"
+basis = "LibreSSL 4.1.0 adds ML-KEM and X25519MLKEM768"
+
+[[library]]
+name = "wolfSSL"
+pattern = 'wolfSSL (?:v)?(?P<version>\d+\.\d+\.\d+)'
+soname = ['^libwolfssl']
+packages = ['^libwolfssl', '^wolfssl$']
+pqc_since = "5.6.0"
+basis = "wolfSSL 5.6 adds ML-KEM (Kyber) and ML-DSA"
+
+[[library]]
+name = "Mbed TLS"
+pattern = '[Mm]bed ?TLS (?P<version>\d+\.\d+\.\d+)'
+soname = ['^libmbedtls', '^libmbedcrypto']
+packages = ['^libmbedtls', '^libmbedcrypto', '^mbedtls$']
+pqc_since = "never"
+basis = "Mbed TLS has no standardised PQC as of 3.6 LTS"
+
+[[library]]
+name = "GnuTLS"
+pattern = 'GnuTLS (?P<version>\d+\.\d+\.\d+)'
+soname = ['^libgnutls']
+packages = ['^libgnutls\d*$', '^gnutls$']
+pqc_since = "3.8.9"
+basis = "GnuTLS 3.8.9 adds ML-KEM hybrid key exchange"
+
+[[library]]
+name = "libsodium"
+pattern = 'libsodium[ -](?P<version>\d+\.\d+\.\d+)'
+soname = ['^libsodium']
+packages = ['^libsodium\d*$']
+pqc_since = "never"
+basis = "libsodium provides no standardised PQC"
+
+[[library]]
+name = "liboqs"
+pattern = 'liboqs[ -](?P<version>\d+\.\d+\.\d+)'
+soname = ['^liboqs']
+packages = ['^liboqs']
+pqc_since = "0.10.0"
+basis = "Open Quantum Safe liboqs implements ML-KEM, ML-DSA, SLH-DSA"
+
+[[library]]
+name = "Windows CNG"
+pattern = '(?P<version>bcrypt\.dll)'
+soname = ['(?i)^bcrypt\.dll$', '(?i)^ncrypt\.dll$']
+pqc_since = "unknown"
+basis = "Windows CNG gained ML-KEM/ML-DSA in Windows 11 24H2 builds; the OS version decides"

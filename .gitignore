@@ -1,6 +1,8 @@
 /target
 /.lattice
 *.cbom.json
+*.report.json
 .env
 node_modules
-ui/dist
+cockpit/dist
+/dist
