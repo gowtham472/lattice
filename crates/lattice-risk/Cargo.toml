@@ -1,0 +1,10 @@
+[package]
+name = "lattice-risk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lattice-core = { path = "../lattice-core" }
+serde.workspace = true

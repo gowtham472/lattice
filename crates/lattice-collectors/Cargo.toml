@@ -1,0 +1,19 @@
+[package]
+name = "lattice-collectors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lattice-core = { path = "../lattice-core" }
+regex.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tree-sitter.workspace = true
+tree-sitter-c.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-python.workspace = true
+walkdir.workspace = true

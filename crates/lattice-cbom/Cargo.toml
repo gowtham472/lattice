@@ -1,0 +1,16 @@
+[package]
+name = "lattice-cbom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+fips204.workspace = true
+hex.workspace = true
+lattice-core = { path = "../lattice-core" }
+lattice-risk = { path = "../lattice-risk" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,23 @@
+[package]
+name = "lattice-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "lattice"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+lattice-cbom = { path = "../lattice-cbom" }
+lattice-classify = { path = "../lattice-classify" }
+lattice-collectors = { path = "../lattice-collectors" }
+lattice-core = { path = "../lattice-core" }
+lattice-graph = { path = "../lattice-graph" }
+lattice-risk = { path = "../lattice-risk" }
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
