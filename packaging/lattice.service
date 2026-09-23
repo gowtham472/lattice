@@ -1,0 +1,70 @@
+# LATTICE cockpit and API as a hardened systemd service.
+#
+# Install: copy to /etc/systemd/system/, put the token and roots in /etc/lattice/lattice.env
+# (see lattice.env.example), then `systemctl enable --now lattice`.
+#
+# systemd confines the service from the outside; LATTICE confines itself again from the inside
+# (Landlock + seccomp, --sandbox required). Either layer alone limits a compromised parser.
+
+[Unit]
+Description=LATTICE cryptographic inventory and quantum-risk cockpit
+Documentation=file:///usr/share/doc/lattice/README.md
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/lattice/lattice.env
+ExecStart=/usr/bin/lattice --sandbox required serve --bind ${LATTICE_BIND} --root ${LATTICE_ROOT} --data-dir /var/lib/lattice
+Restart=on-failure
+
+# identity and privileges
+DynamicUser=yes
+StateDirectory=lattice
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SecureBits=noroot-locked
+
+# filesystem: everything read-only; scan roots readable through LATTICE_ROOT, state writable
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+
+# kernel and namespaces
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+
+# network: listening only; LATTICE opens no outbound connections
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+# widen IPAddressAllow to the operators' networks when binding beyond loopback (a token is then required)
+
+# system calls: LATTICE's own sandbox needs landlock_* and seccomp on top of the service set
+SystemCallArchitectures=native
+SystemCallFilter=@system-service landlock_create_ruleset landlock_add_rule landlock_restrict_self seccomp prctl
+SystemCallFilter=~@privileged @resources @mount @debug @cpu-emulation @obsolete @reboot @swap @raw-io
+SystemCallErrorNumber=EPERM
+
+# resources
+LimitNOFILE=4096
+TasksMax=256
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target
