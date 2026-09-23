@@ -311,7 +311,7 @@ impl fmt::Display for AlgorithmRef {
     /// `ML-KEM-768`, `ECDSA-P-256`), then padding and digest in parentheses
     /// (`RSA-2048 (OAEP, SHA-256)`).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         let display = |id: &str| {
             registry
                 .get(id)
@@ -390,6 +390,8 @@ pub enum KnowledgeError {
     Parse(String),
     #[error("algorithm catalogue is inconsistent: {0}")]
     Inconsistent(String),
+    #[error("the knowledge in use was already fixed before a bundle could be activated")]
+    AlreadyActive,
 }
 
 /// One way a name can begin: an algorithm alias, or an alphabetic parameter-set alias such as
@@ -418,14 +420,29 @@ pub struct Registry {
     digests: Vec<(String, usize)>,
 }
 
+/// The catalogue every lookup uses: a verified knowledge bundle activated at startup, or the
+/// catalogue compiled into this binary.
+static ACTIVE: OnceLock<Registry> = OnceLock::new();
+
 impl Registry {
-    /// The catalogue compiled into this binary. Loaded and validated once.
-    pub fn embedded() -> &'static Registry {
-        static REGISTRY: OnceLock<Registry> = OnceLock::new();
-        REGISTRY.get_or_init(|| {
-            Registry::from_toml(EMBEDDED_ALGORITHMS)
-                .unwrap_or_else(|error| panic!("embedded algorithm catalogue is invalid: {error}"))
-        })
+    /// The active catalogue. Loaded and validated once; compiled in unless [`Registry::activate`]
+    /// installed a bundle's catalogue first.
+    pub fn active() -> &'static Registry {
+        ACTIVE.get_or_init(Registry::compiled)
+    }
+
+    /// The catalogue compiled into this binary.
+    pub fn compiled() -> Registry {
+        Registry::from_toml(EMBEDDED_ALGORITHMS)
+            .unwrap_or_else(|error| panic!("embedded algorithm catalogue is invalid: {error}"))
+    }
+
+    /// Makes `registry` the active catalogue. Only possible before the first lookup, so one
+    /// process never mixes two catalogues.
+    pub fn activate(registry: Registry) -> Result<(), KnowledgeError> {
+        ACTIVE
+            .set(registry)
+            .map_err(|_| KnowledgeError::AlreadyActive)
     }
 
     pub fn from_toml(source: &str) -> Result<Self, KnowledgeError> {
@@ -894,7 +911,7 @@ mod tests {
     use super::*;
 
     fn registry() -> &'static Registry {
-        Registry::embedded()
+        Registry::active()
     }
 
     fn strength(id: &str, params: Params) -> Strength {

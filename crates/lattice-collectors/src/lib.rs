@@ -165,7 +165,7 @@ pub struct CollectionResult {
 
 /// Version of the embedded source-rule catalogue, recorded in every report.
 pub fn rules_version() -> &'static str {
-    source::rules::embedded_version()
+    source::rules::active_version()
 }
 
 /// The standard collector set.

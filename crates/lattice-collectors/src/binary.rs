@@ -56,7 +56,7 @@ impl BinaryCollector {
         // The source rules are embedded and validated by the source collector's own tests; if
         // they failed to load here, symbol matching degrades but signatures still work.
         Self {
-            rules: RuleSet::embedded().ok(),
+            rules: RuleSet::active().ok(),
         }
     }
 }
@@ -507,7 +507,7 @@ fn signature_set() -> &'static SignatureSet {
         );
 
         // DER-encoded OIDs (tag 0x06, length, content) for every OID in the knowledge base
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         let oids: Vec<(String, AlgorithmRef)> = registry
             .oids()
             .filter_map(|oid| {
@@ -618,29 +618,46 @@ struct LibraryMatcher {
     packages: Vec<regex::Regex>,
 }
 
+/// Library knowledge in use: a verified bundle's, activated at startup, or the compiled-in file.
+static MATCHERS: OnceLock<Vec<LibraryMatcher>> = OnceLock::new();
+
 fn library_matchers() -> &'static [LibraryMatcher] {
-    static MATCHERS: OnceLock<Vec<LibraryMatcher>> = OnceLock::new();
     MATCHERS.get_or_init(|| {
-        let file: LibraryFile =
-            toml::from_str(EMBEDDED_LIBRARIES).expect("embedded library knowledge is valid");
-        file.library
-            .into_iter()
-            .map(|def| LibraryMatcher {
-                pattern: Regex::new(&def.pattern).expect("library pattern is valid"),
-                sonames: def
-                    .soname
-                    .iter()
-                    .map(|s| regex::Regex::new(s).expect("soname pattern is valid"))
-                    .collect(),
-                packages: def
-                    .packages
-                    .iter()
-                    .map(|s| regex::Regex::new(s).expect("package pattern is valid"))
-                    .collect(),
+        compile_libraries(EMBEDDED_LIBRARIES).expect("embedded library knowledge is valid")
+    })
+}
+
+/// Makes `source` the active library knowledge. It must parse, and it must be activated before
+/// the first binary is scanned.
+pub fn activate_libraries(source: &str) -> Result<(), String> {
+    let matchers = compile_libraries(source)?;
+    MATCHERS
+        .set(matchers)
+        .map_err(|_| "library knowledge was already in use before activation".to_owned())
+}
+
+/// Parses library knowledge, rejecting invalid patterns instead of panicking.
+pub fn validate_libraries(source: &str) -> Result<usize, String> {
+    compile_libraries(source).map(|matchers| matchers.len())
+}
+
+fn compile_libraries(source: &str) -> Result<Vec<LibraryMatcher>, String> {
+    let file: LibraryFile = toml::from_str(source).map_err(|e| e.to_string())?;
+    let regex = |pattern: &String| {
+        regex::Regex::new(pattern).map_err(|e| format!("pattern {pattern}: {e}"))
+    };
+    file.library
+        .into_iter()
+        .map(|def| {
+            Ok(LibraryMatcher {
+                pattern: Regex::new(&def.pattern)
+                    .map_err(|e| format!("pattern {}: {e}", def.pattern))?,
+                sonames: def.soname.iter().map(regex).collect::<Result<_, _>>()?,
+                packages: def.packages.iter().map(regex).collect::<Result<_, _>>()?,
                 def,
             })
-            .collect()
-    })
+        })
+        .collect()
 }
 
 fn identify_libraries(artifact: &Artifact<'_>, linked: &[String], findings: &mut Findings) {

@@ -240,6 +240,8 @@ export interface Health {
   status: string;
   version: string;
   knowledgeVersion: string;
+  knowledgeSequence: number;
+  knowledgeSigner?: string | null;
   policyVersion: string;
   qDay: [number, number];
   activeScans: number;

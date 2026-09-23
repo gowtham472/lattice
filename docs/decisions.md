@@ -130,8 +130,9 @@ detached, so the CBOM stays pristine CycloneDX. Pure-Rust `fips204` makes this p
 **Chosen: everything offline; update via signed bundles. Rejected: live NVD/OSV calls.**
 
 An NTRO scanner cannot reach out to the internet mid-scan. All knowledge (the algorithm map,
-library PQC support, rules, policy) ships inside the signed release as versioned TOML;
-separately signed `.lattice-bundle` updates between releases are planned. This is a hard
+library PQC support, rules, policy) ships inside the signed release as versioned TOML, and
+signed knowledge bundles carry updates in between: verified against an operator-supplied key,
+validated whole, monotonic, and fail-closed. This is a hard
 requirement of the deployment environment, not a preference, and it shaped the graph choice
 above and the decision to scan exported images rather than pull them.
 

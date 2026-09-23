@@ -97,7 +97,7 @@ impl std::fmt::Debug for SourceCollector {
 impl SourceCollector {
     pub fn new() -> Result<Self, CollectorError> {
         Ok(Self {
-            rules: RuleSet::embedded()?,
+            rules: RuleSet::active()?,
         })
     }
 
@@ -731,7 +731,7 @@ impl<'a> FileScan<'a> {
         let extracted = self.extract_params(node, captures, rule, None);
         let heuristic = node.has_error();
         let mut last_index = None;
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         let mut seen = BTreeSet::new();
         for (mut algorithm, origin) in outcomes {
             algorithm.params.fill_from(&rule.def.params);
@@ -786,7 +786,7 @@ impl<'a> FileScan<'a> {
     }
 
     fn refine_observation(&mut self, index: usize, params: &Params) {
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         if let Some(Observation {
             finding: Finding::Algorithm(finding),
             ..
@@ -869,7 +869,7 @@ impl<'a> FileScan<'a> {
                     groups,
                 });
                 self.emit(node, callee, rule, finding, origin, heuristic);
-                let registry = Registry::embedded();
+                let registry = Registry::active();
                 algorithms.sort();
                 algorithms.dedup();
                 for mut algorithm in algorithms {
@@ -1078,7 +1078,7 @@ impl<'a> FileScan<'a> {
             cipher_suites: suites,
             groups,
         })];
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         findings.extend(algorithms.into_iter().map(|mut algorithm| {
             if let Some(curve) = algorithm.params.curve.take() {
                 algorithm.params.curve = Some(registry.canonical_curve(&curve));
@@ -1747,7 +1747,7 @@ fn apply_grammar(grammar: Grammar, text: &str) -> Option<Resolved> {
         }),
         Grammar::Digest => {
             let algorithm = names::resolve(text)?;
-            let spec = Registry::embedded().get(&algorithm.id)?;
+            let spec = Registry::active().get(&algorithm.id)?;
             matches!(spec.primitive, Primitive::Hash | Primitive::Xof).then(|| {
                 Resolved::Params(Params {
                     digest: Some(algorithm.id),

@@ -99,12 +99,26 @@ pub enum PolicyError {
     Inconsistent(String),
 }
 
+/// The default policy: a verified knowledge bundle's, activated at startup, or the compiled-in
+/// one. A `--policy` file still overrides it per run.
+static ACTIVE: OnceLock<Policy> = OnceLock::new();
+
 impl Policy {
-    pub fn embedded() -> &'static Policy {
-        static POLICY: OnceLock<Policy> = OnceLock::new();
-        POLICY.get_or_init(|| {
-            Policy::from_toml(EMBEDDED_POLICY)
-                .unwrap_or_else(|error| panic!("embedded policy is invalid: {error}"))
+    /// The active default policy.
+    pub fn active() -> &'static Policy {
+        ACTIVE.get_or_init(Policy::compiled)
+    }
+
+    /// The policy compiled into this binary.
+    pub fn compiled() -> Policy {
+        Policy::from_toml(EMBEDDED_POLICY)
+            .unwrap_or_else(|error| panic!("embedded policy is invalid: {error}"))
+    }
+
+    /// Makes `policy` the default. Only possible before it is first used.
+    pub fn activate(policy: Policy) -> Result<(), PolicyError> {
+        ACTIVE.set(policy).map_err(|_| {
+            PolicyError::Inconsistent("the policy was already in use before activation".into())
         })
     }
 
@@ -163,7 +177,7 @@ mod tests {
 
     #[test]
     fn embedded_policy_is_valid() {
-        let policy = Policy::embedded();
+        let policy = Policy::active();
         assert!(
             policy
                 .data_class

@@ -11,7 +11,7 @@ separately in §12, so nothing below is aspirational.
 
 | Constraint | Consequence in the architecture |
 |------------|--------------------------------|
-| **Air-gapped**: NTRO estates cannot phone home | No network client in the scan path. The knowledge base, rules and risk policy are compiled into the binary as versioned TOML. Images and captures are read from files, never pulled. |
+| **Air-gapped**: NTRO estates cannot phone home | No network client in the scan path. The knowledge base, rules and risk policy are compiled into the binary as versioned TOML and updated by signed knowledge bundles carried in. Images and captures are read from files, never pulled. |
 | **Read-only and safe** | Targets are parsed, never executed. The process confines itself (Landlock + seccomp) before reading untrusted content. |
 | **Few artefacts** | One statically linked binary (musl) plus the cockpit's static files. No database or external service. |
 | **Tamper-evident** | CBOMs are signed with ML-DSA-65 (FIPS 204) in a detached signature with a per-component BLAKE3 chain. |
@@ -327,7 +327,6 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Incremental, cached re-scans | Planned |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
-| Signed knowledge bundles with rollback protection | Planned; knowledge is compiled into the signed release |
 | PDF executive report | Planned |
 | Live scan progress over WebSocket | Not built; the cockpit polls |
 | Role-based access control, audit log, mTLS | Planned; the server has loopback binding and a bearer token |

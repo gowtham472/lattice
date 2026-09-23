@@ -285,7 +285,7 @@ mod tests {
     use super::*;
 
     fn classifier() -> Classifier<'static> {
-        Classifier::new(Policy::embedded())
+        Classifier::new(Policy::active())
     }
 
     #[test]

@@ -39,6 +39,9 @@ pub struct Provenance<'a> {
     pub policy_version: &'a str,
     pub assessment_year: u16,
     pub q_day: (u16, u16),
+    pub knowledge_sequence: u64,
+    /// Key id of the signed knowledge bundle in use, if one was activated.
+    pub knowledge_signer: Option<&'a str>,
 }
 
 pub struct BomInput<'a> {
@@ -306,6 +309,8 @@ pub fn build(input: &BomInput<'_>) -> Bom {
     let mut metadata_properties = Properties::default();
     metadata_properties
         .add("knowledge-version", provenance.knowledge_version)
+        .add("knowledge-sequence", provenance.knowledge_sequence)
+        .add_opt("knowledge-signer", provenance.knowledge_signer)
         .add("rules-version", provenance.rules_version)
         .add("policy-version", provenance.policy_version)
         .add("assessment-year", provenance.assessment_year)
@@ -618,7 +623,7 @@ fn algorithm_properties(
     primitive: Option<Primitive>,
     function: Option<CryptoFunction>,
 ) -> AlgorithmProperties {
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     let spec = registry.get(&algorithm.id);
     let params = &algorithm.params;
     let strength = registry.strength(algorithm);
@@ -675,7 +680,7 @@ fn algorithm_properties(
 
 /// The most specific OID the knowledge base has for this algorithm and its parameters.
 fn algorithm_oid(algorithm: &AlgorithmRef) -> Option<String> {
-    let spec = Registry::embedded().get(&algorithm.id)?;
+    let spec = Registry::active().get(&algorithm.id)?;
     let params = &algorithm.params;
     if let Some(set) = params
         .parameter_set

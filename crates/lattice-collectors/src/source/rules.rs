@@ -9,15 +9,32 @@ use std::collections::HashMap;
 
 const EMBEDDED_RULES: &str = include_str!("../../../../rules/source.toml");
 
-/// The `version` of the embedded catalogue, read without compiling the rules.
-pub fn embedded_version() -> &'static str {
+/// The rule catalogue in use: a verified knowledge bundle's, activated at startup, or the one
+/// compiled into this binary.
+static ACTIVE_RULES: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn active_source() -> &'static str {
+    ACTIVE_RULES.get_or_init(|| EMBEDDED_RULES.to_owned())
+}
+
+/// Makes `source` the active rule catalogue. It must compile, and it must be activated before
+/// the first collector is built.
+pub fn activate(source: String) -> Result<(), CollectorError> {
+    RuleSet::from_toml(&source)?; // against the active catalogue, activated first
+    ACTIVE_RULES.set(source).map_err(|_| {
+        CollectorError::InvalidRules("rules were already in use before activation".into())
+    })
+}
+
+/// The `version` of the active catalogue, read without compiling the rules.
+pub fn active_version() -> &'static str {
     static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     VERSION.get_or_init(|| {
         #[derive(Deserialize)]
         struct Header {
             version: String,
         }
-        toml::from_str::<Header>(EMBEDDED_RULES)
+        toml::from_str::<Header>(active_source())
             .map(|header| header.version)
             .unwrap_or_else(|_| "unknown".into())
     })
@@ -235,14 +252,23 @@ pub struct RuleSet {
 }
 
 impl RuleSet {
-    pub fn embedded() -> Result<Self, CollectorError> {
-        Self::from_toml(EMBEDDED_RULES)
+    /// The active catalogue, compiled.
+    pub fn active() -> Result<Self, CollectorError> {
+        Self::from_toml(active_source())
     }
 
     pub fn from_toml(source: &str) -> Result<Self, CollectorError> {
+        Self::from_toml_with(source, lattice_core::Registry::active())
+    }
+
+    /// Compiles rules against a given catalogue: a knowledge bundle's rules are checked against
+    /// the bundle's own algorithms, without fixing the active catalogue before activation.
+    pub fn from_toml_with(
+        source: &str,
+        registry: &lattice_core::Registry,
+    ) -> Result<Self, CollectorError> {
         let file: RuleFile = toml::from_str(source)
             .map_err(|error| CollectorError::InvalidRules(error.to_string()))?;
-        let registry = lattice_core::Registry::embedded();
         let mut rules = Vec::with_capacity(file.rule.len());
         let mut by_last_segment: HashMap<String, Vec<usize>> = HashMap::new();
         let mut regex_rules = Vec::new();
@@ -390,7 +416,7 @@ mod tests {
 
     #[test]
     fn embedded_rules_compile_and_reference_known_algorithms() {
-        let rules = RuleSet::embedded().expect("embedded rules are valid");
+        let rules = RuleSet::active().expect("embedded rules are valid");
         assert!(
             rules.len() > 80,
             "expected a substantial rule set, got {}",
@@ -420,7 +446,7 @@ mod tests {
 
     #[test]
     fn calls_find_their_rules() {
-        let rules = RuleSet::embedded().unwrap();
+        let rules = RuleSet::active().unwrap();
         assert!(
             !rules
                 .for_call(Language::Java, "Cipher.getInstance")

@@ -79,14 +79,14 @@ fn classical_signature_bytes(id: &str, curve: Option<&str>, bits: Option<u32>) -
 }
 
 fn hybrid_kem_bytes() -> u32 {
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     registry.get("x25519-mlkem768").map_or(2336, |spec| {
         spec.public_key_bytes.unwrap_or(1216) + spec.ciphertext_bytes.unwrap_or(1120)
     })
 }
 
 fn ml_dsa_bytes(set: &str) -> u32 {
-    Registry::embedded()
+    Registry::active()
         .get("ml-dsa")
         .and_then(|spec| spec.parameter_set(set))
         .map_or(5261, |set| {
@@ -100,7 +100,7 @@ pub fn recommend(
     assessment: &Assessment,
     data_lifetime_years: f64,
 ) -> Recommendation {
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     // Data that must stay secret for decades gets the strongest parameter set.
     let signature_set = if data_lifetime_years >= 25.0 {
         "87"

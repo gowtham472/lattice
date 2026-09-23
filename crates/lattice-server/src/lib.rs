@@ -257,6 +257,10 @@ struct Health {
     status: &'static str,
     version: &'static str,
     knowledge_version: String,
+    /// Compiled-in knowledge, or the activated bundle's sequence.
+    knowledge_sequence: u64,
+    /// Key id that signed the activated knowledge bundle, if one is in use.
+    knowledge_signer: Option<String>,
     policy_version: String,
     q_day: (u16, u16),
     active_scans: usize,
@@ -268,7 +272,10 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
     Json(Health {
         status: "ok",
         version: lattice_engine::TOOL_VERSION,
-        knowledge_version: lattice_core::Registry::embedded().version().to_owned(),
+        knowledge_version: lattice_core::Registry::active().version().to_owned(),
+        knowledge_sequence: lattice_engine::knowledge::active_bundle()
+            .map_or(lattice_core::KNOWLEDGE_SEQUENCE, |b| b.sequence),
+        knowledge_signer: lattice_engine::knowledge::active_bundle().map(|b| b.key_id.clone()),
         policy_version: policy.version.clone(),
         q_day: (policy.q_day.earliest_year, policy.q_day.latest_year),
         active_scans: state.store.active().await,

@@ -728,7 +728,7 @@ fn analyse(
     let mut findings = Findings::default();
     let mut seen: BTreeMap<Negotiated, (u64, usize)> = BTreeMap::new();
     let mut certificates: BTreeMap<Vec<u8>, (String, u64)> = BTreeMap::new();
-    let registry = Registry::embedded();
+    let registry = Registry::active();
 
     for ((a, b), connection) in connections {
         let streams: Vec<(Endpoint, Vec<u8>, u64)> = [a, b]

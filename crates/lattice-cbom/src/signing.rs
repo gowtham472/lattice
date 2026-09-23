@@ -51,6 +51,8 @@ pub enum SigningError {
     ComponentCount { signed: usize, actual: usize },
     #[error("the CBOM was altered after signing outside its components (metadata or dependencies)")]
     DocumentAltered,
+    #[error("the signed content was altered after signing")]
+    ContentAltered,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,9 +306,171 @@ pub fn verify(
     Err(SigningError::DocumentAltered)
 }
 
+// ---- detached signatures over arbitrary content ---------------------------------------------
+
+pub const BLOB_FORMAT: &str = "lattice-signature/1";
+
+/// A detached ML-DSA-65 signature over arbitrary bytes, bound to a purpose by its context
+/// string (FIPS 204), so a signature made for one kind of content never verifies as another.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobSignature {
+    pub format: String,
+    pub algorithm: String,
+    pub context: String,
+    pub key_id: String,
+    pub bytes: u64,
+    pub sha256: String,
+    pub signature: String,
+}
+
+fn blob_message(signature: &BlobSignature) -> Vec<u8> {
+    let fields: [&[u8]; 6] = [
+        signature.format.as_bytes(),
+        signature.algorithm.as_bytes(),
+        signature.context.as_bytes(),
+        signature.key_id.as_bytes(),
+        &signature.bytes.to_be_bytes(),
+        signature.sha256.as_bytes(),
+    ];
+    let mut message = Vec::new();
+    for field in fields {
+        message.extend_from_slice(&(field.len() as u64).to_be_bytes());
+        message.extend_from_slice(field);
+    }
+    message
+}
+
+/// Signs `content` for the purpose named by `context`.
+pub fn sign_blob(
+    content: &[u8],
+    context: &str,
+    private_key: &[u8],
+    public_key: &[u8],
+) -> Result<BlobSignature, SigningError> {
+    let mut signature = BlobSignature {
+        format: BLOB_FORMAT.into(),
+        algorithm: ALGORITHM.into(),
+        context: context.into(),
+        key_id: key_id(public_key),
+        bytes: content.len() as u64,
+        sha256: hex::encode(Sha256::digest(content)),
+        signature: String::new(),
+    };
+    let key: [u8; ml_dsa_65::SK_LEN] = private_key
+        .try_into()
+        .map_err(|_| SigningError::KeyFormat("private"))?;
+    let signer = ml_dsa_65::PrivateKey::try_from_bytes(key)
+        .map_err(|_| SigningError::KeyFormat("private"))?;
+    let bytes = signer
+        .try_sign(&blob_message(&signature), context.as_bytes())
+        .map_err(|_| SigningError::SigningFailed)?;
+    signature.signature = STANDARD.encode(bytes);
+    Ok(signature)
+}
+
+/// Verifies `content` against a detached signature made for `context`, with a trusted key
+/// supplied by the caller.
+pub fn verify_blob(
+    content: &[u8],
+    signature: &BlobSignature,
+    context: &str,
+    trusted_public_key: &[u8],
+) -> Result<(), SigningError> {
+    if signature.format != BLOB_FORMAT || signature.algorithm != ALGORITHM {
+        return Err(SigningError::SignatureFormat(format!(
+            "unsupported {} / {}",
+            signature.format, signature.algorithm
+        )));
+    }
+    if signature.context != context {
+        return Err(SigningError::SignatureFormat(format!(
+            "signed for `{}`, expected `{context}`",
+            signature.context
+        )));
+    }
+    let trusted = key_id(trusted_public_key);
+    if signature.key_id != trusted {
+        return Err(SigningError::WrongKey {
+            signed_by: signature.key_id.clone(),
+            trusted,
+        });
+    }
+    let key: [u8; ml_dsa_65::PK_LEN] = trusted_public_key
+        .try_into()
+        .map_err(|_| SigningError::KeyFormat("public"))?;
+    let public_key =
+        ml_dsa_65::PublicKey::try_from_bytes(key).map_err(|_| SigningError::KeyFormat("public"))?;
+    let bytes = STANDARD
+        .decode(&signature.signature)
+        .map_err(|e| SigningError::SignatureFormat(e.to_string()))?;
+    let bytes: [u8; ml_dsa_65::SIG_LEN] = bytes
+        .try_into()
+        .map_err(|_| SigningError::SignatureInvalid)?;
+    if !public_key.verify(&blob_message(signature), &bytes, context.as_bytes()) {
+        return Err(SigningError::SignatureInvalid);
+    }
+    if content.len() as u64 != signature.bytes
+        || hex::encode(Sha256::digest(content)) != signature.sha256
+    {
+        return Err(SigningError::ContentAltered);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blob_signatures_bind_content_key_and_purpose() {
+        let keys = keys();
+        let content = b"version = \"2026.10.1\"\n";
+        let signature = sign_blob(
+            content,
+            "lattice-knowledge-v1",
+            &keys.private_key,
+            &keys.public_key,
+        )
+        .unwrap();
+        verify_blob(
+            content,
+            &signature,
+            "lattice-knowledge-v1",
+            &keys.public_key,
+        )
+        .unwrap();
+        assert_eq!(
+            verify_blob(
+                b"version = \"2026.01.1\"\n",
+                &signature,
+                "lattice-knowledge-v1",
+                &keys.public_key
+            ),
+            Err(SigningError::ContentAltered)
+        );
+        assert!(matches!(
+            verify_blob(content, &signature, "lattice-cbom-v1", &keys.public_key),
+            Err(SigningError::SignatureFormat(_))
+        ));
+        // relabelling the purpose does not help: the context is part of what was signed
+        let mut relabelled = signature.clone();
+        relabelled.context = "lattice-cbom-v1".into();
+        assert_eq!(
+            verify_blob(content, &relabelled, "lattice-cbom-v1", &keys.public_key),
+            Err(SigningError::SignatureInvalid)
+        );
+        let other = generate_keypair().unwrap();
+        assert!(matches!(
+            verify_blob(
+                content,
+                &signature,
+                "lattice-knowledge-v1",
+                &other.public_key
+            ),
+            Err(SigningError::WrongKey { .. })
+        ));
+    }
     use serde_json::json;
     use std::sync::OnceLock;
 

@@ -194,7 +194,7 @@ impl Out<'_, '_> {
     fn algorithm(&mut self, algorithm: AlgorithmRef, rule: &str, token: &str, line: u64) {
         let mut algorithm = algorithm;
         if let Some(curve) = algorithm.params.curve.take() {
-            algorithm.params.curve = Some(Registry::embedded().canonical_curve(&curve));
+            algorithm.params.curve = Some(Registry::active().canonical_curve(&curve));
         }
         self.push(Finding::algorithm(algorithm), rule, token, line);
     }

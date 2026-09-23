@@ -124,7 +124,7 @@ struct Assessed {
 }
 
 fn assess() -> Assessed {
-    let policy = Policy::embedded();
+    let policy = Policy::active();
     let assets = normalize(inventory());
     let classifier = Classifier::new(policy);
     let classifications: BTreeMap<String, _> = assets
@@ -201,11 +201,13 @@ fn bom(assessed: &Assessed, timestamp: i64) -> Bom {
         timestamp,
         provenance: Provenance {
             tool_version: "0.1.0",
-            knowledge_version: Registry::embedded().version(),
+            knowledge_version: Registry::active().version(),
             rules_version: "2026.09.1",
-            policy_version: &Policy::embedded().version,
+            policy_version: &Policy::active().version,
             assessment_year: 2026,
             q_day: (2030, 2035),
+            knowledge_sequence: 1,
+            knowledge_signer: None,
         },
         assets: &items,
         libraries: &libraries,

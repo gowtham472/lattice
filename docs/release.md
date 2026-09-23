@@ -83,6 +83,27 @@ docker run --rm -v "$PWD/estate:/estate:ro" -v "$PWD/out:/out" lattice:0.1.0 \
 The image is `scratch`, runs as UID 65532, and contains one static binary plus the cockpit and
 knowledge files.
 
+## Knowledge updates between releases
+
+The algorithm catalogue, library PQC knowledge, detection rules and risk policy can be updated
+without a new binary, through a signed knowledge bundle.
+
+```bash
+# publisher: next sequence number, signed with the knowledge key
+lattice knowledge pack --source knowledge --rules rules/source.toml --sequence 2 \
+    --key knowledge.key --public-key knowledge.pub
+
+# operator: verify and install, then every scan uses it
+lattice knowledge install lattice-knowledge-2026.10.1-2.bundle.json \
+    --knowledge-dir /var/lib/lattice/knowledge --knowledge-key /etc/lattice/knowledge.pub
+lattice knowledge status --knowledge-dir /var/lib/lattice/knowledge --knowledge-key /etc/lattice/knowledge.pub
+```
+
+`--knowledge-dir` and `--knowledge-key` (or `LATTICE_KNOWLEDGE_DIR` and `LATTICE_KNOWLEDGE_KEY`)
+apply to `scan`, `ci` and `serve`. A bundle must be newer than the installed one and than the
+knowledge compiled into the binary; a present bundle that does not verify stops the command with
+exit code 3. Reports, CBOMs and `/api/health` record which knowledge was used and who signed it.
+
 ## The sandbox
 
 On Linux every command that reads untrusted content confines itself before doing so:

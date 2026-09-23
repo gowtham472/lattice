@@ -282,7 +282,7 @@ impl Out<'_, '_> {
             }
             "EC PRIVATE KEY" => {
                 let curve = der::sec1_curve(der).and_then(|oid| {
-                    Registry::embedded()
+                    Registry::active()
                         .curve_by_oid(&oid)
                         .map(|curve| curve.name.clone())
                 });
@@ -345,7 +345,7 @@ impl Out<'_, '_> {
         let Ok((_, certificate)) = X509Certificate::from_der(der) else {
             return false;
         };
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         let spki = certificate.public_key();
         let key_oid = spki.algorithm.algorithm.to_id_string();
         let mut public_key = registry
@@ -650,7 +650,7 @@ mod der {
     ) -> Option<(AlgorithmRef, Option<u32>)> {
         let parts = children(algorithm_identifier);
         let oid = oid_from_content(parts.first().filter(|p| p.tag == 0x06)?.content)?;
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         let mut reference = registry.by_oid(&oid)?;
         let mut bits = None;
         if let Some(parameter) = parts.get(1).filter(|p| p.tag == 0x06)

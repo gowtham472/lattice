@@ -129,7 +129,10 @@ export function App() {
           {health ? (
             <>
               <span>engine {health.version}</span>
-              <span>knowledge {health.knowledgeVersion}</span>
+              <span title={health.knowledgeSigner ? `signed knowledge bundle, key ${health.knowledgeSigner}` : 'knowledge compiled into this release'}>
+                knowledge {health.knowledgeVersion} #{health.knowledgeSequence}
+                {health.knowledgeSigner ? ' · bundle' : ''}
+              </span>
               <span>
                 Q-day window {health.qDay[0]}–{health.qDay[1]}
               </span>

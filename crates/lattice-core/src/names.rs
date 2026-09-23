@@ -37,7 +37,7 @@ pub fn resolve(text: &str) -> Option<AlgorithmRef> {
 /// ECDH over P-384, `x25519` → X25519, `X25519MLKEM768` → the hybrid KEM, `ffdhe3072` → DH-3072.
 pub fn resolve_group(text: &str) -> Option<AlgorithmRef> {
     let text = clean(text)?;
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     let normalized = normalize_token(text);
     if let Some(bits) = normalized
         .strip_prefix("ffdhe")
@@ -79,7 +79,7 @@ pub fn resolve_group(text: &str) -> Option<AlgorithmRef> {
 /// Resolves a curve name to its canonical name (`prime256v1` → `P-256`).
 pub fn resolve_curve(text: &str) -> Option<String> {
     let text = clean(text)?;
-    Registry::embedded()
+    Registry::active()
         .curve(text)
         .map(|curve| curve.name.clone())
 }
@@ -94,7 +94,7 @@ fn clean(text: &str) -> Option<&str> {
 // ---------------------------------------------------------------------------------------------
 
 fn generic(text: &str) -> Option<AlgorithmRef> {
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     let normalized = normalize_token(strip_vendor_suffix(text));
     if normalized.is_empty() {
         return None;
@@ -262,7 +262,7 @@ fn jca_transformation(text: &str) -> Option<AlgorithmRef> {
     if !(2..=3).contains(&parts.len()) {
         return None;
     }
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     let mode = normalize_token(parts[1]);
     let known_mode = mode == "none"
         || registry
@@ -305,7 +305,7 @@ pub fn resolve_jca_cipher(text: &str) -> Option<AlgorithmRef> {
         return jca_transformation(text);
     }
     let mut algorithm = generic(text)?;
-    let spec = Registry::embedded().get(&algorithm.id)?;
+    let spec = Registry::active().get(&algorithm.id)?;
     if spec.primitive == Primitive::BlockCipher && algorithm.params.mode.is_none() {
         algorithm.params.mode = Some("ecb".into());
         algorithm.params.padding = Some("pkcs5".into());
@@ -324,7 +324,7 @@ fn jca_signature(text: &str) -> Option<AlgorithmRef> {
         Some((algorithm, variant)) => (algorithm, Some(variant)),
         None => (rest, None),
     };
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     let mut algorithm = generic(algorithm_part)?;
     let spec = registry.get(&algorithm.id)?;
     if !matches!(spec.primitive, Primitive::Signature | Primitive::Pke) {
@@ -348,7 +348,7 @@ fn jca_signature(text: &str) -> Option<AlgorithmRef> {
 fn jca_kdf(text: &str) -> Option<AlgorithmRef> {
     let normalized = normalize_token(text);
     let rest = normalized.strip_prefix("pbkdf2withhmac")?;
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     let (digest, length) = digest_prefix(registry, rest)?;
     (length == rest.len()).then(|| {
         AlgorithmRef::with_params(

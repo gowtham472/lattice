@@ -11,7 +11,7 @@ const YEAR: u16 = 2026;
 
 fn assessor() -> Assessor<'static> {
     Assessor {
-        policy: Policy::embedded(),
+        policy: Policy::active(),
         assessment_year: YEAR,
     }
 }
@@ -53,7 +53,7 @@ fn algorithm(id: &str, params: Params) -> Finding {
 }
 
 fn context(class: &str, exposure: f64) -> AssetContext {
-    let classifier = Classifier::new(Policy::embedded());
+    let classifier = Classifier::new(Policy::active());
     let data = match class {
         "financial" => classifier.classify_evidence(
             "x",
@@ -321,8 +321,8 @@ fn agility_is_measured_from_how_code_uses_the_algorithm() {
         algorithm("rsa", Params::default()),
         Some(usage(ApiStyle::Primitive, AlgorithmSource::Literal)),
     ));
-    let a = agility(&provider, &context("financial", 1.0), Policy::embedded());
-    let b = agility(&primitive, &context("financial", 1.0), Policy::embedded());
+    let a = agility(&provider, &context("financial", 1.0), Policy::active());
+    let b = agility(&primitive, &context("financial", 1.0), Policy::active());
     assert_eq!(
         a.score,
         40 + 10 + 15,
@@ -334,7 +334,7 @@ fn agility_is_measured_from_how_code_uses_the_algorithm() {
     let mut ready = context("financial", 1.0);
     ready.pqc_ready_library = Some("OpenSSL 3.5.1".into());
     assert_eq!(
-        agility(&primitive, &ready, Policy::embedded()).score,
+        agility(&primitive, &ready, Policy::active()).score,
         25,
         "a PQC-capable library adds 10"
     );
@@ -345,7 +345,7 @@ fn agility_is_measured_from_how_code_uses_the_algorithm() {
         None,
     ));
     assert_eq!(
-        agility(&configured, &context("financial", 1.0), Policy::embedded()).score,
+        agility(&configured, &context("financial", 1.0), Policy::active()).score,
         40 + 20 + 15
     );
 }

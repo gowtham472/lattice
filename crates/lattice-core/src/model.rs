@@ -340,7 +340,7 @@ impl Finding {
             // do not apply, so it is a parameter, not a separate asset.
             Self::Algorithm(finding) => {
                 let primitive = finding.primitive.or_else(|| {
-                    crate::Registry::embedded()
+                    crate::Registry::active()
                         .get(&finding.algorithm.id)
                         .map(|spec| spec.primitive)
                 });
@@ -576,7 +576,7 @@ impl CryptoAsset {
 
 /// Resolves an algorithm's display name through the registry.
 pub fn algorithm_name(id: &str) -> String {
-    Registry::embedded()
+    Registry::active()
         .get(id)
         .map_or_else(|| id.to_owned(), |spec| spec.name.clone())
 }

@@ -8,6 +8,7 @@
 //! are the ones the caller passes explicitly.
 
 pub mod compare;
+pub mod knowledge;
 
 use lattice_cbom::{AssessedAsset, Bom, BomInput, Provenance, Summary};
 use lattice_classify::{Classifier, DataClassification};
@@ -64,7 +65,7 @@ impl Config {
     pub fn new(timestamp: i64) -> Self {
         Self {
             scan: ScanOptions::default(),
-            policy: Policy::embedded().clone(),
+            policy: Policy::active().clone(),
             timestamp,
             assessment_year: year_of(timestamp),
             subject: None,
@@ -96,6 +97,11 @@ pub struct AssetReport {
 pub struct ReportProvenance {
     pub tool_version: String,
     pub knowledge_version: String,
+    /// Sequence of the knowledge used: the compiled-in one, or an activated bundle's.
+    pub knowledge_sequence: u64,
+    /// Key id that signed the activated knowledge bundle; absent for compiled-in knowledge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub knowledge_signer: Option<String>,
     pub rules_version: String,
     pub policy_version: String,
     pub assessment_year: u16,
@@ -211,7 +217,10 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
         .unwrap_or_else(|| subject_name(target));
     let provenance = ReportProvenance {
         tool_version: TOOL_VERSION.into(),
-        knowledge_version: Registry::embedded().version().into(),
+        knowledge_version: Registry::active().version().into(),
+        knowledge_sequence: knowledge::active_bundle()
+            .map_or(lattice_core::KNOWLEDGE_SEQUENCE, |b| b.sequence),
+        knowledge_signer: knowledge::active_bundle().map(|b| b.key_id.clone()),
         rules_version: lattice_collectors::rules_version().into(),
         policy_version: policy.version.clone(),
         assessment_year: config.assessment_year,
@@ -240,6 +249,8 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
                 policy_version: &provenance.policy_version,
                 assessment_year: provenance.assessment_year,
                 q_day: (provenance.q_day_earliest, provenance.q_day_latest),
+                knowledge_sequence: provenance.knowledge_sequence,
+                knowledge_signer: provenance.knowledge_signer.as_deref(),
             },
             assets: &assessed,
             libraries: &findings.libraries,

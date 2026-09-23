@@ -45,6 +45,9 @@ Each phase is one commit in the history.
    to TLS listeners by host name.
 8. **Hardening and releases**: Landlock + seccomp sandbox; reproducible, signed releases with
    SBOMs; systemd unit; container image.
+9. **Documentation** brought in line with the built system.
+10. **Signed knowledge bundles**: algorithms, library knowledge, rules and policy updated between
+    releases; ML-DSA-65 signed, validated whole, monotonic, fail-closed.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -55,18 +58,16 @@ Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 
 In order of value to an operator:
 
-1. **Signed knowledge bundles**: update algorithms, rules and policy without a new release,
-   with rollback protection.
-2. **Incremental scans**: reuse results for unchanged files, so `ci` stays fast on large
+1. **Incremental scans**: reuse results for unchanged files, so `ci` stays fast on large
    repositories.
-3. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
+2. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
    read-only.
-4. **PDF executive report**: deterministic and signed.
-5. **Access control**: roles, an audit log and mTLS for multi-user deployments.
-6. **Assurance**: fuzzing of every parser, property tests for scoring invariants, a golden
+3. **PDF executive report**: deterministic and signed.
+4. **Access control**: roles, an audit log and mTLS for multi-user deployments.
+5. **Assurance**: fuzzing of every parser, property tests for scoring invariants, a golden
    CBOM for OpenSSL.
-7. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
-8. **HSM/TPM discovery** through PKCS#11.
+6. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
+7. **HSM/TPM discovery** through PKCS#11.
 
 ---
 

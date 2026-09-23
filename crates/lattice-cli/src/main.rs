@@ -9,6 +9,7 @@ use lattice_cbom::signing::{self, SignatureFile};
 use lattice_cbom::{Bom, render};
 use lattice_core::policy::Policy;
 use lattice_engine::compare::{self, ChangeKind};
+use lattice_engine::knowledge;
 use lattice_engine::{Config, Report};
 use lattice_risk::Tier;
 use std::fs;
@@ -42,6 +43,15 @@ struct Cli {
     #[arg(long, global = true, value_enum, default_value_t = SandboxArg::BestEffort, env = "LATTICE_SANDBOX")]
     sandbox: SandboxArg,
 
+    /// Directory holding an installed knowledge bundle. When one is installed it must verify
+    /// against --knowledge-key, or the command refuses to run.
+    #[arg(long, global = true, env = "LATTICE_KNOWLEDGE_DIR")]
+    knowledge_dir: Option<PathBuf>,
+
+    /// Trusted public key for knowledge bundles (from `lattice keygen`).
+    #[arg(long, global = true, env = "LATTICE_KNOWLEDGE_KEY")]
+    knowledge_key: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -64,6 +74,55 @@ enum Command {
     Serve(ServeArgs),
     /// Show what the sandbox enforces on this machine, by attempting forbidden operations.
     SandboxCheck(SandboxCheckArgs),
+    /// Build, install and inspect signed knowledge bundles.
+    #[command(subcommand)]
+    Knowledge(KnowledgeCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum KnowledgeCommand {
+    /// Build and sign a bundle from a knowledge directory and a rules file (for publishers).
+    Pack(KnowledgePackArgs),
+    /// Verify a bundle and install it into --knowledge-dir, refusing rollbacks.
+    Install(KnowledgeInstallArgs),
+    /// Show the compiled-in knowledge and the installed bundle.
+    Status,
+}
+
+#[derive(Debug, Args)]
+struct KnowledgePackArgs {
+    /// Directory with algorithms.toml, libraries.toml and policy.toml.
+    #[arg(long, default_value = "knowledge")]
+    source: PathBuf,
+
+    /// Source detection rules.
+    #[arg(long, default_value = "rules/source.toml")]
+    rules: PathBuf,
+
+    /// Monotonic sequence number; must exceed every bundle published before.
+    #[arg(long)]
+    sequence: u64,
+
+    /// Signing key (from `lattice keygen`).
+    #[arg(long)]
+    key: PathBuf,
+
+    #[arg(long)]
+    public_key: PathBuf,
+
+    /// Bundle destination. Defaults to lattice-knowledge-<version>-<sequence>.bundle.json.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+
+    /// Creation time as Unix seconds. Defaults to SOURCE_DATE_EPOCH, then the current time.
+    #[arg(long, env = "SOURCE_DATE_EPOCH")]
+    timestamp: Option<i64>,
+}
+
+#[derive(Debug, Args)]
+struct KnowledgeInstallArgs {
+    /// The bundle; its signature is read from <bundle>.sig.json.
+    bundle: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -337,6 +396,16 @@ fn main() -> ExitCode {
         .init();
 
     let sandbox = lattice_sandbox::Mode::from(cli.sandbox);
+    // Knowledge is fixed before anything consults it; a bundle that does not verify stops here.
+    if matches!(
+        cli.command,
+        Command::Scan(_) | Command::Ci(_) | Command::Serve(_)
+    ) && let Err(code) =
+        activate_knowledge(cli.knowledge_dir.as_deref(), cli.knowledge_key.as_deref())
+    {
+        return ExitCode::from(code);
+    }
+    let knowledge = (cli.knowledge_dir, cli.knowledge_key);
     let result = match cli.command {
         Command::Scan(args) => scan(args, sandbox),
         Command::Ci(args) => ci(args, sandbox),
@@ -346,6 +415,7 @@ fn main() -> ExitCode {
         Command::Validate(args) => validate(args, sandbox),
         Command::Serve(args) => serve(args, sandbox).map(|()| EXIT_OK),
         Command::SandboxCheck(args) => sandbox_check(args, cli.sandbox),
+        Command::Knowledge(command) => knowledge_command(command, knowledge.0, knowledge.1),
     };
     match result {
         Ok(code) => ExitCode::from(code),
@@ -493,6 +563,18 @@ fn print_summary(report: &Report, top: usize) {
     println!(
         "LATTICE {}  {}  ({})",
         report.provenance.tool_version, report.subject, report.generated
+    );
+    let provenance = &report.provenance;
+    println!(
+        "knowledge {} #{} ({}), rules {}, policy {}",
+        provenance.knowledge_version,
+        provenance.knowledge_sequence,
+        provenance.knowledge_signer.as_deref().map_or_else(
+            || "compiled in".to_owned(),
+            |signer| format!("bundle signed by {signer}")
+        ),
+        provenance.rules_version,
+        provenance.policy_version
     );
     println!(
         "scanned {} files ({} bytes); {} failed; graph: {} functions, {} entry points",
@@ -834,6 +916,150 @@ fn installed_cockpit() -> Option<PathBuf> {
         .into_iter()
         .chain([PathBuf::from("cockpit/dist")])
         .find(|dir| dir.join("index.html").is_file())
+}
+
+// ---- knowledge bundles ----------------------------------------------------------------------
+
+/// Activates the installed bundle, if any. Errors are printed here; the exit code says why.
+fn activate_knowledge(dir: Option<&Path>, key: Option<&Path>) -> Result<(), u8> {
+    let Some(dir) = dir else { return Ok(()) };
+    let trusted = match key.map(read_text).transpose() {
+        Ok(text) => match text.map(|t| signing::decode_public_key(&t)).transpose() {
+            Ok(key) => key,
+            Err(error) => {
+                eprintln!("lattice: knowledge key: {error}");
+                return Err(EXIT_ERROR);
+            }
+        },
+        Err(error) => {
+            eprintln!("lattice: knowledge key: {error:#}");
+            return Err(EXIT_ERROR);
+        }
+    };
+    match knowledge::activate(dir, trusted.as_deref()) {
+        Ok(Some(bundle)) => {
+            tracing::info!(version = %bundle.version, sequence = bundle.sequence, signer = %bundle.key_id, "knowledge bundle activated");
+            Ok(())
+        }
+        Ok(None) => Ok(()),
+        Err(error) => {
+            eprintln!("lattice: refusing to run with this knowledge: {error}");
+            Err(match error {
+                knowledge::KnowledgeError::Signature(_)
+                | knowledge::KnowledgeError::Rollback { .. }
+                | knowledge::KnowledgeError::Outdated { .. }
+                | knowledge::KnowledgeError::MissingKey(_) => EXIT_VERIFICATION,
+                _ => EXIT_ERROR,
+            })
+        }
+    }
+}
+
+fn knowledge_command(
+    command: KnowledgeCommand,
+    dir: Option<PathBuf>,
+    key: Option<PathBuf>,
+) -> Result<u8> {
+    let trusted_key = || -> Result<Vec<u8>> {
+        let path = key
+            .as_ref()
+            .context("--knowledge-key (or LATTICE_KNOWLEDGE_KEY) is required")?;
+        Ok(signing::decode_public_key(&read_text(path)?)?)
+    };
+    match command {
+        KnowledgeCommand::Pack(args) => {
+            let timestamp = match args.timestamp {
+                Some(timestamp) => timestamp,
+                None => SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64,
+            };
+            let (private, public) = load_keys(&args.key, &args.public_key)?;
+            let (bytes, bundle) =
+                knowledge::pack(&args.source, &args.rules, args.sequence, timestamp)?;
+            let signature = knowledge::sign(&bytes, &private, &public)?;
+            let output = args.output.unwrap_or_else(|| {
+                PathBuf::from(format!(
+                    "lattice-knowledge-{}-{}.bundle.json",
+                    bundle.version, bundle.sequence
+                ))
+            });
+            write_atomic(&output, &bytes)?;
+            write_atomic(&knowledge::signature_path(&output), &pretty(&signature)?)?;
+            println!(
+                "packed knowledge {} #{} -> {} (signed by {})",
+                bundle.version,
+                bundle.sequence,
+                output.display(),
+                signature.key_id
+            );
+            Ok(EXIT_OK)
+        }
+        KnowledgeCommand::Install(args) => {
+            let dir = dir.context("--knowledge-dir (or LATTICE_KNOWLEDGE_DIR) is required")?;
+            match knowledge::install(
+                &args.bundle,
+                &knowledge::signature_path(&args.bundle),
+                &trusted_key()?,
+                &dir,
+            ) {
+                Ok(bundle) => {
+                    println!(
+                        "installed knowledge {} #{} into {} (rules {}, policy {}, signed by {})",
+                        bundle.version,
+                        bundle.sequence,
+                        dir.display(),
+                        bundle.rules_version,
+                        bundle.policy_version,
+                        bundle.key_id
+                    );
+                    Ok(EXIT_OK)
+                }
+                Err(error) => {
+                    eprintln!("lattice: not installed: {error}");
+                    Ok(EXIT_VERIFICATION)
+                }
+            }
+        }
+        KnowledgeCommand::Status => {
+            let compiled = lattice_core::Registry::compiled();
+            println!(
+                "compiled-in  knowledge {} #{}",
+                compiled.version(),
+                lattice_core::KNOWLEDGE_SEQUENCE
+            );
+            let Some(dir) = dir else {
+                println!("installed    none (no --knowledge-dir)");
+                return Ok(EXIT_OK);
+            };
+            let key = key.as_ref().map(|_| trusted_key()).transpose()?;
+            match knowledge::status(&dir, key.as_deref()) {
+                Ok(Some((bundle, verified))) => {
+                    println!(
+                        "installed    knowledge {} #{} from {} (rules {}, policy {}, signed by {}, {})",
+                        bundle.version,
+                        bundle.sequence,
+                        bundle.created,
+                        bundle.rules_version,
+                        bundle.policy_version,
+                        bundle.key_id,
+                        if verified {
+                            "verified"
+                        } else {
+                            "NOT verified: pass --knowledge-key"
+                        }
+                    );
+                    Ok(EXIT_OK)
+                }
+                Ok(None) => {
+                    println!("installed    none in {}", dir.display());
+                    Ok(EXIT_OK)
+                }
+                Err(error) => {
+                    eprintln!("lattice: installed bundle is not usable: {error}");
+                    Ok(EXIT_VERIFICATION)
+                }
+            }
+        }
+    }
 }
 
 // ---- sandbox check --------------------------------------------------------------------------

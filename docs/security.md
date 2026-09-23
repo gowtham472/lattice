@@ -33,7 +33,7 @@ network.
 | The host running LATTICE | A crafted input exploits a parser | §3 |
 | The scanned code and secrets | Exfiltration | §3, §4, §5 |
 | The CBOM | Tampering to hide a weak asset | §6 |
-| The knowledge and rules | Poisoned rules that suppress findings | §7 |
+| The knowledge and rules | Poisoned or rolled-back rules that suppress findings | §7 |
 | The cockpit | Unauthorised access to results or to scan roots | §8 |
 
 Out of scope by design: LATTICE never writes to, rotates or exploits the target. It reads and
@@ -112,8 +112,16 @@ analyses (see [decisions.md §9](decisions.md)).
   exact rules. *Enforced.*
 - Knowledge ships inside the signed release, so it is covered by the release signature.
   *Enforced.*
-- Separately signed knowledge bundles with rollback protection, for updates between releases.
-  *Planned.*
+- **Signed knowledge bundles** update the catalogue, library knowledge, rules and policy between
+  releases. Each is signed with ML-DSA-65 under its own context string (`lattice-knowledge-v1`)
+  and verified against an operator-supplied key; every file must parse and the rules must compile
+  against the bundle's own catalogue before anything is used. *Enforced.*
+- **Rollback protection.** Bundles carry a monotonic sequence: installation refuses one not newer
+  than the installed bundle, and activation refuses one not newer than the knowledge compiled into
+  the binary. *Enforced.*
+- **Fail closed.** An installed bundle that does not verify, or with no trusted key given, stops
+  `scan`, `ci` and `serve` with exit code 3; nothing is produced from unverified knowledge.
+  Reports and CBOMs record the knowledge sequence and the signing key. *Enforced.*
 
 ---
 

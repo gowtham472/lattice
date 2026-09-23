@@ -376,3 +376,160 @@ fn the_server_serves_after_confinement() {
         "{body}"
     );
 }
+
+#[test]
+fn signed_knowledge_bundles_update_scans_and_refuse_tampering_and_rollback() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    project(root);
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // a publisher's next knowledge release: new catalogue version, an earlier Q-day window
+    let source = root.join("knowledge-src");
+    fs::create_dir_all(&source).unwrap();
+    for file in ["algorithms.toml", "libraries.toml", "policy.toml"] {
+        let text = fs::read_to_string(repository.join("knowledge").join(file)).unwrap();
+        let text = match file {
+            "algorithms.toml" => {
+                text.replacen("version = \"2026.09.1\"", "version = \"2026.10.1\"", 1)
+            }
+            "policy.toml" => text.replace("earliest_year = 2030", "earliest_year = 2028"),
+            _ => text,
+        };
+        fs::write(source.join(file), text).unwrap();
+    }
+    fs::copy(
+        repository.join("rules/source.toml"),
+        root.join("source-rules.toml"),
+    )
+    .unwrap();
+    assert_eq!(
+        code(&lattice(&["keygen", "--out-dir", "publisher"], root)),
+        0
+    );
+    let pack = |sequence: &str, output: &str| {
+        lattice(
+            &[
+                "knowledge",
+                "pack",
+                "--source",
+                "knowledge-src",
+                "--rules",
+                "source-rules.toml",
+                "--sequence",
+                sequence,
+                "--key",
+                "publisher/lattice-signing.key",
+                "--public-key",
+                "publisher/lattice-signing.pub",
+                "-o",
+                output,
+            ],
+            root,
+        )
+    };
+    let packed = pack("2", "k2.bundle.json");
+    assert_eq!(code(&packed), 0, "{}", text(&packed.stderr));
+    let trust = [
+        "--knowledge-dir",
+        "kdir",
+        "--knowledge-key",
+        "publisher/lattice-signing.pub",
+    ];
+
+    let install = lattice(
+        &[&trust[..], &["knowledge", "install", "k2.bundle.json"]].concat(),
+        root,
+    );
+    assert_eq!(code(&install), 0, "{}", text(&install.stderr));
+    assert!(text(&install.stdout).contains("2026.10.1 #2"));
+
+    let scan = lattice(
+        &[
+            &trust[..],
+            &[
+                "scan",
+                "target-app",
+                "-o",
+                "k.cbom.json",
+                "--report",
+                "k.report.json",
+            ],
+        ]
+        .concat(),
+        root,
+    );
+    assert_eq!(code(&scan), 0, "{}", text(&scan.stderr));
+    assert!(
+        text(&scan.stdout).contains("knowledge 2026.10.1 #2 (bundle signed by"),
+        "{}",
+        text(&scan.stdout)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("k.report.json")).unwrap()).unwrap();
+    assert_eq!(report["provenance"]["knowledgeVersion"], "2026.10.1");
+    assert_eq!(report["provenance"]["knowledgeSequence"], 2);
+    assert_eq!(
+        report["provenance"]["qDayEarliest"], 2028,
+        "the bundle's policy is the default"
+    );
+    let cbom = fs::read_to_string(root.join("k.cbom.json")).unwrap();
+    assert!(cbom.contains("\"lattice:knowledge-signer\""));
+
+    // an older bundle cannot replace a newer one
+    assert_eq!(code(&pack("2", "again.bundle.json")), 0);
+    let rollback = lattice(
+        &[&trust[..], &["knowledge", "install", "again.bundle.json"]].concat(),
+        root,
+    );
+    assert_eq!(code(&rollback), 3, "{}", text(&rollback.stderr));
+    assert!(text(&rollback.stderr).contains("roll back"));
+
+    // an installed bundle without a trusted key, or tampered with, stops the scan
+    let unkeyed = lattice(
+        &[
+            "--knowledge-dir",
+            "kdir",
+            "scan",
+            "target-app",
+            "-o",
+            "u.cbom.json",
+            "--report",
+            "u.report.json",
+        ],
+        root,
+    );
+    assert_eq!(code(&unkeyed), 3, "{}", text(&unkeyed.stderr));
+    let installed = root.join("kdir/knowledge.bundle.json");
+    let tampered = fs::read_to_string(&installed)
+        .unwrap()
+        .replace("earliest_year = 2028", "earliest_year = 2040");
+    fs::write(&installed, tampered).unwrap();
+    let refused = lattice(
+        &[
+            &trust[..],
+            &[
+                "scan",
+                "target-app",
+                "-o",
+                "t.cbom.json",
+                "--report",
+                "t.report.json",
+            ],
+        ]
+        .concat(),
+        root,
+    );
+    assert_eq!(code(&refused), 3, "{}", text(&refused.stderr));
+    assert!(text(&refused.stderr).contains("refusing to run with this knowledge"));
+    assert!(
+        !root.join("t.cbom.json").exists(),
+        "nothing is produced from unverified knowledge"
+    );
+
+    let status = lattice(&["knowledge", "status"], root);
+    assert!(
+        text(&status.stdout).contains("compiled-in  knowledge 2026.09.1 #1"),
+        "{}",
+        text(&status.stdout)
+    );
+}

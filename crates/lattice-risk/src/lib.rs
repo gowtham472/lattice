@@ -241,7 +241,7 @@ impl Assessor<'_> {
     }
 
     fn classical(&self, asset: &CryptoAsset) -> (ClassicalStatus, Vec<String>) {
-        let registry = Registry::embedded();
+        let registry = Registry::active();
         let strength = |algorithm: &AlgorithmRef| {
             registry
                 .strength(algorithm)
@@ -403,7 +403,7 @@ impl Assessor<'_> {
 
 /// Quantum breakability with its reason (architecture.md §6.1).
 pub fn quantum_breakability(asset: &CryptoAsset) -> (f64, String) {
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     let for_algorithm = |algorithm: &AlgorithmRef| -> (f64, String) {
         let Some(spec) = registry.get(&algorithm.id) else {
             return (
@@ -543,7 +543,7 @@ pub fn quantum_breakability(asset: &CryptoAsset) -> (f64, String) {
 }
 
 fn threat_of(asset: &CryptoAsset) -> Threat {
-    let registry = Registry::embedded();
+    let registry = Registry::active();
     match &asset.finding {
         Finding::Certificate(_) => Threat::Forge,
         Finding::Protocol(_) => Threat::Harvest,

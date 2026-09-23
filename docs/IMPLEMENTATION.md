@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 167 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 175 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -33,11 +33,11 @@ flowchart TD
 | `lattice-classify` | Data classification from identifiers, parameters, functions, paths | 8 |
 | `lattice-graph` | Crypto graph, entry-point reachability, exposure, data inheritance | 5 |
 | `lattice-risk` | Assessor (QB, threat, HNDL/TNFL index, CAS, Mosca range, tiers) and advisor (recommendations, FIPS 203/204 size deltas, roadmap waves) | 12 |
-| `lattice-cbom` | Strict CycloneDX 1.6 emitter, offline schema validation, detached ML-DSA-65 signing | 15 |
-| `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison | 7 |
+| `lattice-cbom` | Strict CycloneDX 1.6 emitter, offline schema validation, detached ML-DSA-65 signing (CBOMs and arbitrary content) | 16 |
+| `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles | 10 |
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards | 6 |
 | `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
-| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `serve`, `sandbox-check` | 6 end-to-end |
+| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `serve`, `sandbox-check`, `knowledge` | 7 end-to-end |
 | `cockpit` | React 19 + TypeScript: overview and Mosca timeline, inventory, explanation drawer, exposure graph, roadmap, compare, scan launcher | typecheck |
 
 ## Guarantees enforced by tests
@@ -70,6 +70,7 @@ flowchart TD
 | Runtime collector (pcap/pcapng: TLS and SSH handshakes → `Confirmed`) | Delivered |
 | OS sandboxing (Landlock, seccomp) | Delivered |
 | Release packaging (static musl binaries, SBOM, signatures, systemd unit, container image) | Delivered |
+| Signed knowledge bundles (monotonic, validated whole, fail-closed) | Delivered |
 
 ## Usage
 

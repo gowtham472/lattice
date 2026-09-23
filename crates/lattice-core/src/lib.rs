@@ -16,6 +16,10 @@ pub use normalize::normalize;
 
 use std::path::{Component, Path};
 
+/// Monotonic sequence number of the knowledge compiled into this binary. A knowledge bundle
+/// must carry a higher one to be accepted, so an old bundle can never downgrade a newer release.
+pub const KNOWLEDGE_SEQUENCE: u64 = 1;
+
 /// CycloneDX specification version LATTICE emits.
 pub const CBOM_SPEC_VERSION: &str = "1.6";
 

@@ -736,7 +736,7 @@ mod tests {
         assets: &[CryptoAsset],
         functions: &[FunctionFact],
     ) -> BTreeMap<String, DataClassification> {
-        let classifier = Classifier::new(Policy::embedded());
+        let classifier = Classifier::new(Policy::active());
         let by_id: HashMap<&str, &FunctionFact> =
             functions.iter().map(|f| (f.id.as_str(), f)).collect();
         assets
@@ -765,7 +765,7 @@ mod tests {
             bindings: &[],
             libraries: &[],
             classifications: &classifications,
-            policy: Policy::embedded(),
+            policy: Policy::active(),
         });
         let rsa = assets
             .iter()
@@ -784,7 +784,7 @@ mod tests {
             .unwrap();
         let orphan = graph.context(&md5.id).unwrap();
         assert!(!orphan.reachable);
-        assert_eq!(orphan.exposure, Policy::embedded().exposure.unreached);
+        assert_eq!(orphan.exposure, Policy::active().exposure.unreached);
         assert!(orphan.exposure_reason.contains("not assumed dead"));
         assert_eq!(graph.stats().reachable_assets, 1);
     }
@@ -814,7 +814,7 @@ mod tests {
             bindings: &bindings,
             libraries: &[],
             classifications: &classifications,
-            policy: Policy::embedded(),
+            policy: Policy::active(),
         });
         let context = graph.context(&assets[0].id).unwrap();
         assert!(context.reachable);
@@ -896,7 +896,7 @@ mod tests {
             bindings: &[],
             libraries: &[],
             classifications: &classifications,
-            policy: Policy::embedded(),
+            policy: Policy::active(),
         });
         let protocol = assets
             .iter()
@@ -949,7 +949,7 @@ mod tests {
             bindings: &[],
             libraries: &[],
             classifications: &classifications,
-            policy: Policy::embedded(),
+            policy: Policy::active(),
         });
         assert!(!graph.context(&assets[0].id).unwrap().reachable);
         assert_eq!(graph.stats().calls_unresolved, 1);
@@ -972,7 +972,7 @@ mod tests {
             bindings: &[],
             libraries: &[],
             classifications: &classifications,
-            policy: Policy::embedded(),
+            policy: Policy::active(),
         };
         let a = serde_json::to_string(&CryptoGraph::build(&input).to_serializable()).unwrap();
         let b = serde_json::to_string(&CryptoGraph::build(&input).to_serializable()).unwrap();
