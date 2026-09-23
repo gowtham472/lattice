@@ -47,7 +47,8 @@ read-only, outputs the only writable places; seccomp: no network, no program exe
 `lattice sandbox-check` shows what the kernel enforces; `--sandbox required` refuses to run without it.
 Release builds, verification, the systemd unit and the container image: [`docs/release.md`](docs/release.md).
 
-Set `SOURCE_DATE_EPOCH` for byte-reproducible output. `--policy` replaces the embedded risk policy
+Set `SOURCE_DATE_EPOCH` for byte-reproducible output. Add `--cache DIR` to `scan`, `ci` or
+`serve` to skip files that have not changed since the last scan; the output is identical. `--policy` replaces the embedded risk policy
 ([`knowledge/policy.toml`](knowledge/policy.toml)): Q-day window, exposure and liveness weights,
 data classes and their secrecy lifetimes.
 

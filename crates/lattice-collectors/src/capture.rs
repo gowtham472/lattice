@@ -923,6 +923,7 @@ fn analyse(
             .sum(),
         skipped_too_large: 0,
         by_collector: BTreeMap::from([(COLLECTOR.to_owned(), 1)]),
+        cache_hits: 0,
     };
     (findings, stats)
 }

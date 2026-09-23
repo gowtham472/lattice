@@ -77,6 +77,10 @@ analyses (see [decisions.md §9](decisions.md)).
 - **Captures.** Only handshake metadata is read; application data and client addresses are
   never decoded or stored. *Enforced.*
 - **No telemetry.** No analytics, crash reporting or beacons. *Enforced.*
+- **The incremental cache** holds findings (the same metadata as reports, never source) and is
+  fingerprinted to the executable and the knowledge in use; corrupt entries are ignored. It is as
+  sensitive as the output directory: whoever can write to it can shape later results, so it
+  belongs on the same protected storage. *Enforced.*
 - **Zeroisation** of transient key buffers and **encryption at rest** for stored results.
   *Planned.*
 

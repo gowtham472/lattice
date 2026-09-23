@@ -618,13 +618,28 @@ struct LibraryMatcher {
     packages: Vec<regex::Regex>,
 }
 
-/// Library knowledge in use: a verified bundle's, activated at startup, or the compiled-in file.
-static MATCHERS: OnceLock<Vec<LibraryMatcher>> = OnceLock::new();
+/// Library knowledge in use: a verified bundle's, activated at startup, or the compiled-in file,
+/// with the BLAKE3 of its source.
+static MATCHERS: OnceLock<(Vec<LibraryMatcher>, [u8; 32])> = OnceLock::new();
+
+fn active_libraries() -> &'static (Vec<LibraryMatcher>, [u8; 32]) {
+    MATCHERS.get_or_init(|| {
+        let matchers =
+            compile_libraries(EMBEDDED_LIBRARIES).expect("embedded library knowledge is valid");
+        (
+            matchers,
+            *blake3::hash(EMBEDDED_LIBRARIES.as_bytes()).as_bytes(),
+        )
+    })
+}
 
 fn library_matchers() -> &'static [LibraryMatcher] {
-    MATCHERS.get_or_init(|| {
-        compile_libraries(EMBEDDED_LIBRARIES).expect("embedded library knowledge is valid")
-    })
+    &active_libraries().0
+}
+
+/// BLAKE3 of the active library knowledge.
+pub fn active_libraries_digest() -> [u8; 32] {
+    active_libraries().1
 }
 
 /// Makes `source` the active library knowledge. It must parse, and it must be activated before
@@ -632,7 +647,7 @@ fn library_matchers() -> &'static [LibraryMatcher] {
 pub fn activate_libraries(source: &str) -> Result<(), String> {
     let matchers = compile_libraries(source)?;
     MATCHERS
-        .set(matchers)
+        .set((matchers, *blake3::hash(source.as_bytes()).as_bytes()))
         .map_err(|_| "library knowledge was already in use before activation".to_owned())
 }
 

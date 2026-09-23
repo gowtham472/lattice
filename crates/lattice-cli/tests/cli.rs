@@ -533,3 +533,57 @@ fn signed_knowledge_bundles_update_scans_and_refuse_tampering_and_rollback() {
         text(&status.stdout)
     );
 }
+
+#[test]
+fn incremental_scans_reuse_unchanged_files_with_identical_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    project(root);
+    let scan = |name: &str| {
+        lattice(
+            &[
+                "scan",
+                "target-app",
+                "--cache",
+                "cache",
+                "-o",
+                &format!("{name}.cbom.json"),
+                "--report",
+                &format!("{name}.report.json"),
+            ],
+            root,
+        )
+    };
+    let first = scan("first");
+    assert_eq!(code(&first), 0, "{}", text(&first.stderr));
+    assert!(
+        text(&first.stdout).contains("cache   0 of 2 files reused"),
+        "{}",
+        text(&first.stdout)
+    );
+    let second = scan("second");
+    assert!(
+        text(&second.stdout).contains("cache   2 of 2 files reused"),
+        "{}",
+        text(&second.stdout)
+    );
+    for kind in ["cbom", "report"] {
+        assert_eq!(
+            fs::read(root.join(format!("first.{kind}.json"))).unwrap(),
+            fs::read(root.join(format!("second.{kind}.json"))).unwrap(),
+            "cached and fresh {kind} are byte-identical"
+        );
+    }
+    fs::write(
+        root.join("target-app/src/receipt.py"),
+        "import hashlib\n\ndef receipt(data):\n    return hashlib.sha512(data).hexdigest()\n",
+    )
+    .unwrap();
+    let third = scan("third");
+    assert!(
+        text(&third.stdout).contains("cache   1 of 2 files reused"),
+        "{}",
+        text(&third.stdout)
+    );
+    assert!(text(&third.stdout).contains("SHA-512"));
+}

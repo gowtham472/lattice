@@ -961,6 +961,7 @@ dependencies = [
  "anyhow",
  "clap",
  "lattice-cbom",
+ "lattice-collectors",
  "lattice-core",
  "lattice-engine",
  "lattice-risk",

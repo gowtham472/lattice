@@ -13,6 +13,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 lattice-cbom = { path = "../lattice-cbom" }
+lattice-collectors = { path = "../lattice-collectors" }
 lattice-core = { path = "../lattice-core" }
 lattice-engine = { path = "../lattice-engine" }
 lattice-risk = { path = "../lattice-risk" }

@@ -407,6 +407,8 @@ struct PrefixEntry {
 #[derive(Debug)]
 pub struct Registry {
     version: String,
+    /// BLAKE3 of the TOML this catalogue was built from.
+    digest: [u8; 32],
     algorithms: Vec<AlgorithmSpec>,
     curves: Vec<CurveSpec>,
     by_id: HashMap<String, usize>,
@@ -448,10 +450,15 @@ impl Registry {
     pub fn from_toml(source: &str) -> Result<Self, KnowledgeError> {
         let catalogue: Catalogue =
             toml::from_str(source).map_err(|error| KnowledgeError::Parse(error.to_string()))?;
-        Self::index(catalogue)
+        Self::index(catalogue, *blake3::hash(source.as_bytes()).as_bytes())
     }
 
-    fn index(catalogue: Catalogue) -> Result<Self, KnowledgeError> {
+    /// BLAKE3 of the catalogue's source: changes whenever any entry changes, version or not.
+    pub fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
+
+    fn index(catalogue: Catalogue, digest: [u8; 32]) -> Result<Self, KnowledgeError> {
         let mut by_id = HashMap::new();
         let mut by_alias = HashMap::new();
         let mut by_oid = HashMap::new();
@@ -584,6 +591,7 @@ impl Registry {
 
         Ok(Self {
             version: catalogue.version,
+            digest,
             algorithms: catalogue.algorithm,
             curves: catalogue.curve,
             by_id,

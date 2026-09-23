@@ -204,6 +204,10 @@ struct EngineArgs {
     /// Time limit in seconds for one archive or capture.
     #[arg(long, default_value_t = 900)]
     archive_timeout: u64,
+
+    /// Incremental-scan cache directory: unchanged files are not parsed again. Safe to delete.
+    #[arg(long, env = "LATTICE_CACHE")]
+    cache: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -359,6 +363,10 @@ struct ServeArgs {
     /// Time limit in seconds for one archive or capture.
     #[arg(long, default_value_t = 900)]
     archive_timeout: u64,
+
+    /// Incremental-scan cache directory shared by the server's scans.
+    #[arg(long, env = "LATTICE_CACHE")]
+    cache: Option<PathBuf>,
 }
 
 fn parse_root(value: &str) -> Result<(String, PathBuf), String> {
@@ -460,7 +468,25 @@ fn engine_config(args: &EngineArgs) -> Result<Config> {
     config.scan.include_dependencies = args.include_dependencies;
     config.scan.max_archive_bytes = args.max_archive_bytes;
     config.scan.archive_timeout = Duration::from_secs(args.archive_timeout.max(1));
+    config.scan.cache = open_cache(args.cache.as_deref())?;
     Ok(config)
+}
+
+/// Opens the incremental cache before confinement: it fingerprints this executable.
+fn open_cache(
+    dir: Option<&Path>,
+) -> Result<Option<std::sync::Arc<lattice_collectors::cache::Cache>>> {
+    dir.map(|dir| {
+        lattice_collectors::cache::Cache::open(dir)
+            .map(std::sync::Arc::new)
+            .with_context(|| format!("opening the cache {}", dir.display()))
+    })
+    .transpose()
+}
+
+/// The writable location confinement must allow for the cache (entries live beneath it).
+fn cache_marker(dir: &Path) -> PathBuf {
+    dir.join("v1").join("entry")
 }
 
 /// Confines the process: `read` stay readable, and the directories holding `write` become the
@@ -523,6 +549,10 @@ fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     if keys.is_some() {
         outputs.push(&signature_file);
     }
+    let cache_marker = args.engine.cache.as_deref().map(cache_marker);
+    if let Some(marker) = &cache_marker {
+        outputs.push(marker);
+    }
     let confinement = confine(sandbox, &[&args.target], &outputs)?;
 
     let outcome = lattice_engine::run(&args.target, &config)?;
@@ -554,6 +584,12 @@ fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
             println!("signed  {}", signature_file.display());
         }
         println!("sandbox {}", confinement.summary());
+        if args.engine.cache.is_some() {
+            println!(
+                "cache   {} of {} files reused",
+                outcome.report.stats.cache_hits, outcome.report.stats.files_scanned
+            );
+        }
     }
     Ok(EXIT_OK)
 }
@@ -660,10 +696,15 @@ fn ci(args: CiArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
         bail!("{} does not exist", args.target.display());
     }
     let config = engine_config(&args.engine)?;
-    let outputs: Vec<&Path> = [args.output.as_deref(), args.changes.as_deref()]
-        .into_iter()
-        .flatten()
-        .collect();
+    let cache_marker = args.engine.cache.as_deref().map(cache_marker);
+    let outputs: Vec<&Path> = [
+        args.output.as_deref(),
+        args.changes.as_deref(),
+        cache_marker.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     confine(sandbox, &[&args.target], &outputs)?;
 
     let baseline: Bom = serde_json::from_slice(&baseline_bytes)
@@ -858,6 +899,7 @@ fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
     engine.scan.parse_timeout = Duration::from_secs(args.parse_timeout.max(1));
     engine.scan.max_archive_bytes = args.max_archive_bytes;
     engine.scan.archive_timeout = Duration::from_secs(args.archive_timeout.max(1));
+    engine.scan.cache = open_cache(args.cache.as_deref())?;
     let ui = args.ui.or_else(installed_cockpit);
     if ui.is_none() {
         eprintln!(
@@ -892,7 +934,12 @@ fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
             read.push(ui);
         }
         let data = args.data_dir.join("scans");
-        let report = confine(sandbox, &read, &[&data])?;
+        let cache = args.cache.as_deref().map(cache_marker);
+        let mut write: Vec<&Path> = vec![&data];
+        if let Some(cache) = &cache {
+            write.push(cache);
+        }
+        let report = confine(sandbox, &read, &write)?;
         println!(
             "LATTICE cockpit on http://{} (sandbox: {})",
             config.bind,

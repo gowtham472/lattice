@@ -48,6 +48,8 @@ Each phase is one commit in the history.
 9. **Documentation** brought in line with the built system.
 10. **Signed knowledge bundles**: algorithms, library knowledge, rules and policy updated between
     releases; ML-DSA-65 signed, validated whole, monotonic, fail-closed.
+11. **Incremental scans**: a content-addressed cache keyed by file content, the executable and the
+    active knowledge; unchanged files are not parsed again and output stays byte-identical.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -58,16 +60,14 @@ Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 
 In order of value to an operator:
 
-1. **Incremental scans**: reuse results for unchanged files, so `ci` stays fast on large
-   repositories.
-2. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
+1. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
    read-only.
-3. **PDF executive report**: deterministic and signed.
-4. **Access control**: roles, an audit log and mTLS for multi-user deployments.
-5. **Assurance**: fuzzing of every parser, property tests for scoring invariants, a golden
+2. **PDF executive report**: deterministic and signed.
+3. **Access control**: roles, an audit log and mTLS for multi-user deployments.
+4. **Assurance**: fuzzing of every parser, property tests for scoring invariants, a golden
    CBOM for OpenSSL.
-6. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
-7. **HSM/TPM discovery** through PKCS#11.
+5. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
+6. **HSM/TPM discovery** through PKCS#11.
 
 ---
 

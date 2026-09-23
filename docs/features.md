@@ -96,7 +96,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Modes: `scan`, `ci`, `serve`, `sign`, `verify`, `validate`, `keygen`, `sandbox-check`, `knowledge` | Delivered |
 | Bearer-token authentication, loopback by default, DNS-rebinding protection | Delivered |
 | Signed knowledge bundles updated independently of releases, with rollback protection | Delivered |
-| Incremental, cached re-scans | Planned |
+| Incremental scans: a content-addressed cache reuses unchanged files, with byte-identical output | Delivered |
 | Role-based access control and an audit log | Planned |
 | Cockpit embedded in the binary | Planned; shipped as static files beside it |
 

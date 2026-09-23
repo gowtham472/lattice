@@ -307,6 +307,11 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 
 - **Determinism.** Stable ordering everywhere, canonical JSON for signing, content-derived ids;
   `SOURCE_DATE_EPOCH` pins timestamps. Tested byte-for-byte.
+- **Incremental scans.** With `--cache`, each file's findings are stored under a BLAKE3 key of
+  its path, component and bytes, within a fingerprint of the executable and the active catalogue,
+  rules and library knowledge. Unchanged files are not parsed again; any rebuild or knowledge
+  change starts afresh; only clean results are cached. Output is byte-identical with or without
+  the cache (tested).
 - **Graceful degradation.** A collector failing on one artefact records the reason and the scan
   continues; failures are part of the report.
 - **Bounds.** File sizes, archive expansion (decompression bombs), entries, packets, flows,
@@ -325,7 +330,6 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 |------|--------|
 | eBPF runtime hooks (`aya`) on crypto-library calls | Planned; captured traffic provides the Confirmed state today |
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
-| Incremental, cached re-scans | Planned |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
 | PDF executive report | Planned |
 | Live scan progress over WebSocket | Not built; the cockpit polls |

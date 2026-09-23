@@ -26,6 +26,11 @@ pub fn activate(source: String) -> Result<(), CollectorError> {
     })
 }
 
+/// BLAKE3 of the active rule catalogue.
+pub fn active_digest() -> [u8; 32] {
+    *blake3::hash(active_source().as_bytes()).as_bytes()
+}
+
 /// The `version` of the active catalogue, read without compiling the rules.
 pub fn active_version() -> &'static str {
     static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();

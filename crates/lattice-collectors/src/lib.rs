@@ -11,6 +11,7 @@
 //! scan (security.md §3).
 
 pub mod binary;
+pub mod cache;
 pub mod capture;
 pub mod config;
 pub mod container;
@@ -59,6 +60,8 @@ pub struct ScanOptions {
     pub max_expanded_bytes: u64,
     /// Upper bound on the time one archive or capture may take.
     pub archive_timeout: Duration,
+    /// Incremental-scan cache, opened before the process is confined.
+    pub cache: Option<std::sync::Arc<cache::Cache>>,
 }
 
 impl Default for ScanOptions {
@@ -70,6 +73,7 @@ impl Default for ScanOptions {
             max_archive_bytes: DEFAULT_MAX_ARCHIVE_BYTES,
             max_expanded_bytes: DEFAULT_MAX_EXPANDED_BYTES,
             archive_timeout: DEFAULT_ARCHIVE_TIMEOUT,
+            cache: None,
         }
     }
 }
@@ -85,7 +89,7 @@ pub struct Artifact<'a> {
 }
 
 /// Everything collectors report: cryptographic observations plus the code facts the graph needs.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Findings {
     pub observations: Vec<Observation>,
     pub functions: Vec<FunctionFact>,
@@ -154,6 +158,10 @@ pub struct ScanStats {
     pub skipped_too_large: u64,
     /// Files each collector inspected, keyed by collector name.
     pub by_collector: std::collections::BTreeMap<String, u64>,
+    /// Files whose findings came from the incremental cache. A property of the run, not of the
+    /// scanned system, so it stays out of reports (cached and uncached reports are identical).
+    #[serde(skip)]
+    pub cache_hits: u64,
 }
 
 #[derive(Debug, Default)]
@@ -235,6 +243,7 @@ pub fn collect_target(
         result.failures.extend(failures);
         result.stats.files_scanned += stats.files_scanned;
         result.stats.bytes_scanned += stats.bytes_scanned;
+        result.stats.cache_hits += stats.cache_hits;
         for (name, count) in stats.by_collector {
             *result.stats.by_collector.entry(name).or_default() += count;
         }
@@ -312,5 +321,25 @@ fn scan_file(
         component: &component,
         bytes: &bytes,
     };
-    scan_bytes(&artifact, collectors, options)
+    let Some(cache) = &options.cache else {
+        return scan_bytes(&artifact, collectors, options);
+    };
+    let key = cache.key(&file.report_path, &component, &bytes);
+    if let Some(entry) = cache.get(&key) {
+        let stats = entry.stats();
+        return (entry.findings, Vec::new(), stats);
+    }
+    let (findings, failures, stats) = scan_bytes(&artifact, collectors, options);
+    // clean results of files some collector read; nothing is saved by caching the rest
+    if failures.is_empty() && stats.files_scanned > 0 {
+        let entry = cache::Entry {
+            findings,
+            files_scanned: stats.files_scanned,
+            bytes_scanned: stats.bytes_scanned,
+            by_collector: stats.by_collector.clone(),
+        };
+        cache.put(&key, &entry);
+        return (entry.findings, failures, stats);
+    }
+    (findings, failures, stats)
 }
