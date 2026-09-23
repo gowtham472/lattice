@@ -1,0 +1,8 @@
+{
+  "name": "notifications",
+  "version": "1.9.0",
+  "dependencies": {
+    "express": "5.1.0",
+    "jsonwebtoken": "9.0.2"
+  }
+}

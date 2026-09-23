@@ -1,0 +1,30 @@
+[package]
+name = "lattice-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "LATTICE HTTP API and cockpit host"
+
+[dependencies]
+axum.workspace = true
+blake3.workspace = true
+lattice-cbom = { path = "../lattice-cbom" }
+lattice-core = { path = "../lattice-core" }
+lattice-engine = { path = "../lattice-engine" }
+lattice-risk = { path = "../lattice-risk" }
+lattice-sandbox = { path = "../lattice-sandbox" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+tempfile.workspace = true
+tower.workspace = true
+
+[lints]
+workspace = true
