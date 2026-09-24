@@ -1,0 +1,19 @@
+[package]
+name = "lattice-report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The LATTICE executive report: a deterministic PDF rendered from a LATTICE report"
+
+[dependencies]
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+lattice-engine = { path = "../lattice-engine" }
+
+[lints]
+workspace = true

@@ -64,7 +64,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | ML-DSA-65 signatures with a per-component BLAKE3 chain (tamper-evident) | Delivered | - |
 | Comparison of two scans | Delivered | - |
 | Crypto graph export (JSON) | Delivered | - |
-| PDF executive report | Planned | standardised report |
+| PDF executive report: findings, risk by component, the plan against the national timeline, what to fix first, method and inputs; deterministic and ML-DSA-65 signed | Delivered | standardised report |
 | Roadmap scheduled against the India DST 2027–2029 critical-infrastructure timeline: due year per wave, the team size that meets every deadline, overdue waves flagged | Delivered | - |
 
 ---

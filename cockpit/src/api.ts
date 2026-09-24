@@ -70,15 +70,19 @@ export const api = {
     json<Comparison>(
       `/api/compare?baseline=${encodeURIComponent(baseline)}&current=${encodeURIComponent(current)}&failOn=${encodeURIComponent(failOn)}`,
     ),
-  /** Downloads through fetch so the bearer token applies, then saves via an object URL. */
-  async downloadCbom(id: string): Promise<void> {
-    const response = await request(`${scanPath(id)}/cbom?download=1`);
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `lattice-${id}.cdx.json`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  },
+  downloadCbom: (id: string) => download(`${scanPath(id)}/cbom?download=1`, `lattice-${id}.cdx.json`),
+  /** The executive report as PDF, rendered by the server from the stored report. */
+  downloadPdf: (id: string) => download(`${scanPath(id)}/report.pdf`, `lattice-${id}.pdf`),
 };
+
+/** Downloads through fetch so the bearer token applies, then saves via an object URL. */
+async function download(path: string, filename: string): Promise<void> {
+  const response = await request(path);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

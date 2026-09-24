@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 189 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 194 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -36,8 +36,9 @@ flowchart TD
 | `lattice-cbom` | Strict CycloneDX 1.6 emitter, offline schema validation, detached ML-DSA-65 signing (CBOMs and arbitrary content) | 16 |
 | `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles; golden CBOM of the demo estate | 12 |
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards | 6 |
+| `lattice-report` | Executive PDF: a deterministic PDF writer (standard fonts, exact metrics) and the report layout, rendered from the report JSON | 5 |
 | `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
-| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `serve`, `sandbox-check`, `knowledge` | 8 end-to-end |
+| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `report`, `serve`, `sandbox-check`, `knowledge` | 8 end-to-end |
 | `cockpit` | React 19 + TypeScript: overview and Mosca timeline, inventory, explanation drawer, exposure graph, roadmap, compare, scan launcher | typecheck |
 
 ## Guarantees enforced by tests
@@ -76,6 +77,7 @@ flowchart TD
 | Incremental scans (content-addressed cache, byte-identical output) | Delivered |
 | Assurance: property tests, golden CBOM, cargo-fuzz targets for every parser | Delivered |
 | Effort estimates and the roadmap scheduled against the India DST 2027–2029 timeline | Delivered |
+| Executive PDF report, deterministic and signed (CLI, API, cockpit) | Delivered |
 
 ## Usage
 

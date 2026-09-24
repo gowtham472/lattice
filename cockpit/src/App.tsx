@@ -172,9 +172,14 @@ export function App() {
             </select>
           )}
           {ready && scanId && (
-            <button className="btn" onClick={() => api.downloadCbom(scanId).catch(handle)} title="Download the CycloneDX 1.6 CBOM">
-              <Icon name="download" /> CBOM
-            </button>
+            <>
+              <button className="btn" onClick={() => api.downloadCbom(scanId).catch(handle)} title="Download the CycloneDX 1.6 CBOM">
+                <Icon name="download" /> CBOM
+              </button>
+              <button className="btn" onClick={() => api.downloadPdf(scanId).catch(handle)} title="Download the executive report (PDF)">
+                <Icon name="download" /> PDF
+              </button>
+            </>
           )}
           <button
             className="btn"

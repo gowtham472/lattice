@@ -24,8 +24,13 @@ The binary is `target/release/lattice`.
 ## Use
 
 ```bash
-# scan: CBOM + explainable report
-lattice scan examples/demo-estate -o demo.cbom.json --report demo.report.json
+# scan: CBOM + explainable report (+ the executive PDF)
+lattice scan examples/demo-estate -o demo.cbom.json --report demo.report.json --pdf demo.pdf
+
+# or render the PDF later from a report, signed like a CBOM
+lattice report demo.report.json -o demo.pdf \
+    --sign-with keys/lattice-signing.key --public-key keys/lattice-signing.pub
+lattice verify demo.pdf --public-key keys/lattice-signing.pub
 
 # sign and verify (ML-DSA-65, FIPS 204)
 lattice keygen --out-dir keys

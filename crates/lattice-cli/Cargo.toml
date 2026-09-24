@@ -16,6 +16,7 @@ lattice-cbom = { path = "../lattice-cbom" }
 lattice-collectors = { path = "../lattice-collectors" }
 lattice-core = { path = "../lattice-core" }
 lattice-engine = { path = "../lattice-engine" }
+lattice-report = { path = "../lattice-report" }
 lattice-risk = { path = "../lattice-risk" }
 lattice-sandbox = { path = "../lattice-sandbox" }
 lattice-server = { path = "../lattice-server" }

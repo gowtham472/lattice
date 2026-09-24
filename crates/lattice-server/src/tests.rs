@@ -268,6 +268,24 @@ async fn scan_lifecycle_artefacts_persistence_and_comparison() {
             .unwrap()
             .contains(".cdx.json")
     );
+    let (status, _, headers) = call(
+        &server,
+        "GET",
+        &format!("/api/scans/{first}/report.pdf"),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get("content-type").unwrap(), "application/pdf");
+    assert!(
+        headers
+            .get("content-disposition")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with(".pdf\"")
+    );
     let (_, graph) = get(&server, &format!("/api/scans/{first}/graph")).await;
     assert!(
         graph["nodes"]

@@ -164,6 +164,7 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
         .route("/scans", get(scans_list).post(scans_create))
         .route("/scans/{id}", get(scan_get))
         .route("/scans/{id}/report", get(scan_report))
+        .route("/scans/{id}/report.pdf", get(scan_report_pdf))
         .route("/scans/{id}/cbom", get(scan_cbom))
         .route("/scans/{id}/graph", get(scan_graph))
         .route("/compare", get(compare))
@@ -561,6 +562,35 @@ async fn scan_report(
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
     Ok(json_bytes(artefacts(&state, &id).await?.report.clone()))
+}
+
+/// The executive report, rendered on request from the stored report. Rendering is
+/// deterministic, so every download of a scan is the same file.
+async fn scan_report_pdf(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResult<Response> {
+    let artefacts = artefacts(&state, &id).await?;
+    let pdf = tokio::task::spawn_blocking(move || lattice_report::executive_pdf(&artefacts.report))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "rendering failed"))?
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut response = (
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/pdf"),
+        )],
+        pdf,
+    )
+        .into_response();
+    // `id` passed `valid_id`, so it is safe inside the header
+    if let Ok(value) = HeaderValue::from_str(&format!("attachment; filename=\"lattice-{id}.pdf\""))
+    {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, value);
+    }
+    Ok(response)
 }
 
 async fn scan_graph(

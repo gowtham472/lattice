@@ -970,6 +970,7 @@ dependencies = [
  "lattice-collectors",
  "lattice-core",
  "lattice-engine",
+ "lattice-report",
  "lattice-risk",
  "lattice-sandbox",
  "lattice-server",
@@ -1057,6 +1058,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-report"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "lattice-engine",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "lattice-risk"
 version = "0.1.0"
 dependencies = [
@@ -1089,6 +1101,7 @@ dependencies = [
  "lattice-cbom",
  "lattice-core",
  "lattice-engine",
+ "lattice-report",
  "lattice-risk",
  "lattice-sandbox",
  "serde",

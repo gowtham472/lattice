@@ -10,6 +10,7 @@ members = [
     "crates/lattice-cli",
     "crates/lattice-server",
     "crates/lattice-sandbox",
+    "crates/lattice-report",
 ]
 exclude = ["fuzz"]
 resolver = "3"

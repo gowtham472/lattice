@@ -148,6 +148,11 @@ Pure functions over the enriched graph. Deterministic, explainable, no learned m
   changed in × a crypto-agility penalty × the spread across files (logarithmic) × the criticality
   of the data it protects. Every factor is reported with its reason, and every weight is in the
   policy.
+- **Executive report**: `lattice-report` renders a PDF from the report JSON (so the CLI and
+  the server render the same way, and an old report re-renders identically): headline figures,
+  key findings, risk by tier and by component, the plan against the timeline, the first fifteen
+  changes, and the method with the exact inputs and the source report's BLAKE3. The writer is
+  deterministic, so the PDF carries a detached ML-DSA-65 signature like the CBOM.
 - **Timeline**: the policy maps the waves onto a regulatory schedule (by default the India DST
   2027–2029 window for critical information infrastructure: waves 1–3 due 2027, 2028, 2029). The
   plan gives each wave's effort, the cumulative work due by its year, the full-time engineers that
@@ -350,7 +355,6 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 | eBPF runtime hooks (`aya`) on crypto-library calls | Planned; captured traffic provides the Confirmed state today |
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
-| PDF executive report | Planned |
 | Live scan progress over WebSocket | Not built; the cockpit polls |
 | Role-based access control, audit log, mTLS | Planned; the server has loopback binding and a bearer token |
 | A golden CBOM of an OpenSSL release | Planned; the demo estate has one today |

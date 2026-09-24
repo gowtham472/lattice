@@ -54,6 +54,8 @@ Each phase is one commit in the history.
     and `cargo-fuzz` targets for every parser of hostile input.
 13. **Effort and timeline**: person-weeks per change with every factor explained; the roadmap
     scheduled against the India DST 2027–2029 timeline, with the team size that meets it.
+14. **Executive report**: a deterministic, signed PDF from the CLI (`scan --pdf`, `report`) and
+    the cockpit.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -66,10 +68,9 @@ In order of value to an operator:
 
 1. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
    read-only.
-2. **PDF executive report**: deterministic and signed.
-3. **Access control**: roles, an audit log and mTLS for multi-user deployments.
-4. **HSM/TPM discovery** through PKCS#11.
-5. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
+2. **Access control**: roles, an audit log and mTLS for multi-user deployments.
+3. **HSM/TPM discovery** through PKCS#11.
+4. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
 
 ---
 

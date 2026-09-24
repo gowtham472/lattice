@@ -12,6 +12,7 @@ blake3.workspace = true
 lattice-cbom = { path = "../lattice-cbom" }
 lattice-core = { path = "../lattice-core" }
 lattice-engine = { path = "../lattice-engine" }
+lattice-report = { path = "../lattice-report" }
 lattice-risk = { path = "../lattice-risk" }
 lattice-sandbox = { path = "../lattice-sandbox" }
 serde.workspace = true

@@ -70,6 +70,8 @@ enum Command {
     Verify(VerifyArgs),
     /// Validate a CBOM against the CycloneDX 1.6 schema and check its internal references.
     Validate(ValidateArgs),
+    /// Render the executive PDF from a report written by `scan`.
+    Report(ReportArgs),
     /// Serve the HTTP API and the cockpit.
     Serve(ServeArgs),
     /// Show what the sandbox enforces on this machine, by attempting forbidden operations.
@@ -227,6 +229,10 @@ struct ScanArgs {
     #[arg(long)]
     graph: Option<PathBuf>,
 
+    /// Also write the executive report as PDF (signed too when --sign-with is given).
+    #[arg(long)]
+    pdf: Option<PathBuf>,
+
     /// Sign the CBOM with this private key (from `lattice keygen`).
     #[arg(long, requires = "public_key")]
     sign_with: Option<PathBuf>,
@@ -288,8 +294,26 @@ struct KeygenArgs {
 }
 
 #[derive(Debug, Args)]
+struct ReportArgs {
+    /// Report JSON written by `lattice scan --report`.
+    report: PathBuf,
+
+    /// PDF destination.
+    #[arg(short, long, default_value = "lattice.report.pdf")]
+    output: PathBuf,
+
+    /// Sign the PDF with this private key, writing <output>.sig.json.
+    #[arg(long, requires = "public_key")]
+    sign_with: Option<PathBuf>,
+
+    /// Public key matching --sign-with.
+    #[arg(long)]
+    public_key: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
 struct SignArgs {
-    /// CBOM to sign.
+    /// CBOM or executive-report PDF to sign.
     cbom: PathBuf,
 
     #[arg(long)]
@@ -305,7 +329,7 @@ struct SignArgs {
 
 #[derive(Debug, Args)]
 struct VerifyArgs {
-    /// CBOM to verify.
+    /// CBOM or executive-report PDF to verify.
     cbom: PathBuf,
 
     /// The trusted public key. Never taken from the CBOM or the signature file.
@@ -420,6 +444,7 @@ fn main() -> ExitCode {
         Command::Keygen(args) => keygen(args).map(|()| EXIT_OK),
         Command::Sign(args) => sign(args).map(|()| EXIT_OK),
         Command::Verify(args) => verify(args, sandbox),
+        Command::Report(args) => report(args, sandbox),
         Command::Validate(args) => validate(args, sandbox),
         Command::Serve(args) => serve(args, sandbox).map(|()| EXIT_OK),
         Command::SandboxCheck(args) => sandbox_check(args, cli.sandbox),
@@ -546,8 +571,13 @@ fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     if let Some(graph) = &args.graph {
         outputs.push(graph);
     }
+    let pdf_signature_file = args.pdf.as_deref().map(|pdf| signature_path(pdf, None));
+    if let Some(pdf) = &args.pdf {
+        outputs.push(pdf);
+    }
     if keys.is_some() {
         outputs.push(&signature_file);
+        outputs.extend(pdf_signature_file.as_deref());
     }
     let cache_marker = args.engine.cache.as_deref().map(cache_marker);
     if let Some(marker) = &cache_marker {
@@ -564,13 +594,27 @@ fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     } else {
         write_atomic(&args.output, &cbom)?;
     }
-    write_atomic(&args.report, &pretty(&outcome.report)?)?;
+    let report_bytes = pretty(&outcome.report)?;
+    write_atomic(&args.report, &report_bytes)?;
     if let Some(path) = &args.graph {
         write_atomic(path, &pretty(&outcome.graph)?)?;
     }
+    let pdf = match &args.pdf {
+        Some(path) => {
+            let pdf = lattice_report::executive_pdf(&report_bytes)?;
+            write_atomic(path, &pdf)?;
+            Some(pdf)
+        }
+        None => None,
+    };
     if let Some((private, public)) = &keys {
         let signature = signing::sign(&cbom, private, public)?;
         write_atomic(&signature_file, &pretty(&signature)?)?;
+        if let (Some(pdf), Some(path)) = (&pdf, &pdf_signature_file) {
+            let signature =
+                signing::sign_blob(pdf, lattice_report::PDF_SIGNATURE_CONTEXT, private, public)?;
+            write_atomic(path, &pretty(&signature)?)?;
+        }
     }
     if !args.quiet && !to_stdout {
         print_summary(&outcome.report, args.top);
@@ -580,8 +624,14 @@ fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
         if let Some(path) = &args.graph {
             println!("graph   {}", path.display());
         }
+        if let Some(path) = &args.pdf {
+            println!("PDF     {}", path.display());
+        }
         if keys.is_some() {
             println!("signed  {}", signature_file.display());
+            if let Some(path) = &pdf_signature_file {
+                println!("signed  {}", path.display());
+            }
         }
         println!("sandbox {}", confinement.summary());
         if args.engine.cache.is_some() {
@@ -807,11 +857,32 @@ fn sign_bytes(document: &[u8], key: &Path, public_key: &Path) -> Result<Signatur
     Ok(signing::sign(document, &private, &public)?)
 }
 
+fn is_pdf(document: &[u8]) -> bool {
+    document.starts_with(b"%PDF-")
+}
+
 fn sign(args: SignArgs) -> Result<()> {
     let document =
         fs::read(&args.cbom).with_context(|| format!("reading {}", args.cbom.display()))?;
-    let signature = sign_bytes(&document, &args.key, &args.public_key)?;
     let path = signature_path(&args.cbom, args.signature.as_deref());
+    if is_pdf(&document) {
+        let (private, public) = load_keys(&args.key, &args.public_key)?;
+        let signature = signing::sign_blob(
+            &document,
+            lattice_report::PDF_SIGNATURE_CONTEXT,
+            &private,
+            &public,
+        )?;
+        write_atomic(&path, &pretty(&signature)?)?;
+        println!(
+            "signed {} ({} bytes) -> {}",
+            args.cbom.display(),
+            signature.bytes,
+            path.display()
+        );
+        return Ok(());
+    }
+    let signature = sign_bytes(&document, &args.key, &args.public_key)?;
     write_atomic(&path, &pretty(&signature)?)?;
     println!(
         "signed {} ({} components) -> {}",
@@ -844,6 +915,44 @@ fn verify(args: VerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     let key_text = read_text(&args.public_key)?;
     // everything is in memory: the parsing and verification below need no filesystem at all
     confine(sandbox, &[], &[])?;
+    if is_pdf(&document) {
+        let checked = (|| -> Result<signing::BlobSignature> {
+            let signature: signing::BlobSignature = serde_json::from_str(&signature_text)
+                .with_context(|| {
+                    format!(
+                        "{} is not a LATTICE signature file",
+                        signature_file.display()
+                    )
+                })?;
+            let trusted = signing::decode_public_key(&key_text)?;
+            signing::verify_blob(
+                &document,
+                &signature,
+                lattice_report::PDF_SIGNATURE_CONTEXT,
+                &trusted,
+            )?;
+            Ok(signature)
+        })();
+        return Ok(match checked {
+            Ok(signature) => {
+                println!(
+                    "verified {}: executive report, {} bytes, signed by key {} ({})",
+                    args.cbom.display(),
+                    signature.bytes,
+                    signature.key_id,
+                    signature.algorithm
+                );
+                EXIT_OK
+            }
+            Err(error) => {
+                eprintln!(
+                    "lattice: verification FAILED for {}: {error:#}",
+                    args.cbom.display()
+                );
+                EXIT_VERIFICATION
+            }
+        });
+    }
     let checked = (|| -> Result<SignatureFile> {
         let signature: SignatureFile =
             serde_json::from_str(&signature_text).with_context(|| {
@@ -875,6 +984,37 @@ fn verify(args: VerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
             Ok(EXIT_VERIFICATION)
         }
     }
+}
+
+fn report(args: ReportArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    let input =
+        fs::read(&args.report).with_context(|| format!("reading {}", args.report.display()))?;
+    let keys = match &args.sign_with {
+        Some(key) => Some(load_keys(
+            key,
+            args.public_key
+                .as_ref()
+                .expect("clap enforces --public-key"),
+        )?),
+        None => None,
+    };
+    let signature_file = signature_path(&args.output, None);
+    let mut outputs: Vec<&Path> = vec![&args.output];
+    if keys.is_some() {
+        outputs.push(&signature_file);
+    }
+    // the report is untrusted input: parse it confined, with only the outputs writable
+    confine(sandbox, &[], &outputs)?;
+    let pdf = lattice_report::executive_pdf(&input)?;
+    write_atomic(&args.output, &pdf)?;
+    println!("PDF     {} ({} bytes)", args.output.display(), pdf.len());
+    if let Some((private, public)) = &keys {
+        let signature =
+            signing::sign_blob(&pdf, lattice_report::PDF_SIGNATURE_CONTEXT, private, public)?;
+        write_atomic(&signature_file, &pretty(&signature)?)?;
+        println!("signed  {}", signature_file.display());
+    }
+    Ok(EXIT_OK)
 }
 
 fn validate(args: ValidateArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {

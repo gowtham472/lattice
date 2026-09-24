@@ -150,17 +150,21 @@ above and the decision to scan exported images rather than pull them.
 
 ---
 
-## 10. PDF report (planned): embedded Typst over `printpdf` or HTML-to-PDF
+## 10. PDF report: a purpose-built writer over Typst, `printpdf` or HTML-to-PDF
 
-**Chosen for when it is built: Typst compiled in as a library. Rejected: `printpdf`,
-HTML→PDF.** The CBOM, the explainable report JSON and the cockpit cover reporting today.
+**Chosen: a small PDF writer in `lattice-report` (standard 14 fonts, text, rectangles, lines).
+Rejected: HTML→PDF, Typst, `printpdf`.** This replaces the earlier plan to embed Typst.
 
-The signed executive report must be **deterministic**, **pure-Rust** (air-gap, no headless
-browser), and **good-looking**. `printpdf` gives control but every layout is hand-coded.
-HTML→PDF needs a browser engine - a heavy, non-deterministic, network-adjacent dependency we
-will not ship into an air-gapped estate. **Typst** is pure Rust, embeddable as a library,
-templated, and renders deterministically - polished reports without a browser. It wins on all
-three requirements.
+The signed executive report must be **deterministic** (it is signed, and re-rendering must
+reproduce it byte for byte), **pure Rust** (air-gap, no headless browser) and **small in attack
+surface** (it parses a report that may come from elsewhere). HTML→PDF needs a browser engine:
+heavy, non-deterministic, network-adjacent. Typst renders deterministically but brings a
+compiler, a font stack and a large dependency tree into a security tool for four pages of
+tables. `printpdf` would still leave every layout hand-coded. The report is a fixed layout of
+headings, figures, tables and one bar, so about 400 lines of writer do it: the standard fonts
+need no embedding, their published metrics make wrapping exact, the document ID is a content
+hash and the creation date is the report's own timestamp. The trade-off is typography: no
+embedded fonts, WinAnsi text only (other characters get ASCII equivalents).
 
 ---
 
