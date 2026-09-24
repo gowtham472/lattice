@@ -38,6 +38,9 @@ pub struct ScanMeta {
     pub summary: Option<Summary>,
     #[serde(default)]
     pub failures: usize,
+    /// The principal that started the scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
 }
 
 /// A finished scan's artefacts.

@@ -2,27 +2,36 @@
 //!
 //! ```text
 //! GET  /api/health                         liveness and versions (no auth)
+//! GET  /api/whoami                         the caller's name and role
 //! GET  /api/roots                          configured scan roots (names only)
-//! GET  /api/roots/{root}/entries?path=     sub-directories, to pick a target
-//! POST /api/scans                          {root, path, subject?, subjectVersion?} → 202
+//! GET  /api/roots/{root}/entries?path=     sub-directories, to pick a target      operator
+//! POST /api/scans                          {root, path, subject?, subjectVersion?} → 202  operator
 //! GET  /api/scans                          all scans, newest first
 //! GET  /api/scans/{id}                     one scan's status and summary
 //! GET  /api/scans/{id}/report              explainable report
+//! GET  /api/scans/{id}/report.pdf          executive report
 //! GET  /api/scans/{id}/cbom[?download=1]   CycloneDX 1.6 CBOM
 //! GET  /api/scans/{id}/graph               crypto graph
 //! GET  /api/compare?baseline=&current=&failOn=
+//! GET  /api/audit?limit=                   the audit log, newest first              admin
 //! ```
+//!
+//! Everything but `/api/health` needs at least the viewer role (see [`access`]), and every call
+//! is recorded in the audit log (see [`audit`]).
 //!
 //! Scans run one at a time on the blocking pool; the async runtime only moves bytes. Every
 //! response carries a strict Content-Security-Policy, and API responses are never cached.
 
+pub mod access;
+pub mod audit;
 mod security;
 mod store;
 
+pub use access::{Principal, Role, User};
 pub use security::Root;
 pub use store::{ScanMeta, Status};
 
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Extension, Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -50,8 +59,14 @@ const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; st
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
-    #[error("refusing to listen on non-loopback address {0} without an API token")]
+    #[error(
+        "refusing to listen on non-loopback address {0} without API credentials (--users or --token)"
+    )]
     TokenRequired(SocketAddr),
+    #[error("users: {0}")]
+    Access(String),
+    #[error("{0}; refusing to start (check it with `lattice audit verify`)")]
+    Audit(#[from] audit::AuditError),
     #[error("scan root {name}: {reason}")]
     Root { name: String, reason: String },
     #[error("data directory: {0}")]
@@ -66,7 +81,10 @@ pub struct ServerConfig {
     pub bind: SocketAddr,
     /// (name, path) pairs; the only places scans may read.
     pub roots: Vec<(String, PathBuf)>,
+    /// A single admin bearer token (kept for compatibility; prefer `users`).
     pub token: Option<String>,
+    /// Named users with roles, from a users file.
+    pub users: Vec<User>,
     pub data_dir: Option<PathBuf>,
     /// Built cockpit (`cockpit/dist`). Without it only the API is served.
     pub ui_dir: Option<PathBuf>,
@@ -84,7 +102,8 @@ pub struct AppState {
     scans: Semaphore,
     counter: AtomicU64,
     pub(crate) loopback_only: bool,
-    pub(crate) token_digest: Option<blake3::Hash>,
+    pub(crate) access: access::Access,
+    pub(crate) audit: audit::AuditLog,
 }
 
 /// A JSON error body: `{"error": "..."}`.
@@ -122,7 +141,9 @@ type ApiResult<T> = Result<T, ApiError>;
 /// Validates the configuration and builds the application.
 pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
     let loopback_only = config.bind.ip().is_loopback();
-    if !loopback_only && config.token.as_deref().is_none_or(str::is_empty) {
+    let access =
+        access::Access::new(config.users, config.token.as_deref()).map_err(ServerError::Access)?;
+    if !loopback_only && !access.requires_credentials() {
         return Err(ServerError::TokenRequired(config.bind));
     }
     let mut roots = Vec::new();
@@ -143,6 +164,7 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
         }
         roots.push(Root { name, path });
     }
+    let audit = audit::AuditLog::open(config.data_dir.as_deref())?;
     let state = Arc::new(AppState {
         roots,
         store: Store::open(config.data_dir).map_err(ServerError::Store)?,
@@ -151,14 +173,14 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
         scans: Semaphore::new(1),
         counter: AtomicU64::new(0),
         loopback_only,
-        token_digest: config
-            .token
-            .filter(|t| !t.is_empty())
-            .map(|t| blake3::hash(t.trim().as_bytes())),
+        access,
+        audit,
     });
 
     let api = Router::new()
         .route("/health", get(health))
+        .route("/whoami", get(whoami))
+        .route("/audit", get(audit_list))
         .route("/roots", get(roots_list))
         .route("/roots/{root}/entries", get(entries))
         .route("/scans", get(scans_list).post(scans_create))
@@ -235,12 +257,15 @@ pub async fn serve_on(
     let bind = config.bind;
     let router = app(config)?;
     tracing::info!(%bind, "LATTICE server listening");
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .map_err(ServerError::Serve)
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await
+    .map_err(ServerError::Serve)
 }
 
 fn now() -> (i64, String) {
@@ -266,6 +291,8 @@ struct Health {
     q_day: (u16, u16),
     active_scans: usize,
     sandbox: Option<lattice_sandbox::Report>,
+    /// Whether callers must present credentials.
+    authentication: bool,
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
@@ -281,6 +308,39 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         q_day: (policy.q_day.earliest_year, policy.q_day.latest_year),
         active_scans: state.store.active().await,
         sandbox: state.sandbox.clone(),
+        authentication: state.access.requires_credentials(),
+    })
+}
+
+async fn whoami(Extension(principal): Extension<Principal>) -> Json<Principal> {
+    Json(principal)
+}
+
+#[derive(Deserialize)]
+struct AuditQuery {
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditPage {
+    /// Entries recorded so far, including those no longer kept in memory.
+    entries: u64,
+    /// BLAKE3 of the newest line: anchors the chain.
+    head: String,
+    recent: Vec<audit::Entry>,
+}
+
+async fn audit_list(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<AuditQuery>,
+) -> Json<AuditPage> {
+    let (recent, entries, head) = state.audit.recent(query.limit.unwrap_or(200).min(1000));
+    Json(AuditPage {
+        entries,
+        head,
+        recent,
     })
 }
 
@@ -388,6 +448,7 @@ fn clean_label(value: Option<String>, what: &str) -> ApiResult<Option<String>> {
 
 async fn scans_create(
     State(state): State<Arc<AppState>>,
+    Extension(principal): Extension<Principal>,
     Json(request): Json<ScanRequest>,
 ) -> ApiResult<(StatusCode, Json<ScanMeta>)> {
     let root = root(&state, &request.root)?.clone();
@@ -432,6 +493,7 @@ async fn scans_create(
         duration_ms: None,
         summary: None,
         failures: 0,
+        requested_by: Some(principal.name.clone()),
     };
     state.store.insert(meta.clone()).await;
 

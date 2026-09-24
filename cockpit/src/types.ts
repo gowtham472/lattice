@@ -266,6 +266,32 @@ export interface ScanMeta {
   durationMs?: number;
   summary?: Summary;
   failures: number;
+  requestedBy?: string;
+}
+
+export type Role = 'viewer' | 'operator' | 'admin';
+
+export interface Principal {
+  name: string;
+  role: Role;
+}
+
+export interface AuditEntry {
+  seq: number;
+  time: string;
+  actor: string;
+  role?: Role;
+  method: string;
+  path: string;
+  status: number;
+  peer?: string;
+  prev: string;
+}
+
+export interface AuditPage {
+  entries: number;
+  head: string;
+  recent: AuditEntry[];
 }
 
 export interface Health {
@@ -277,6 +303,7 @@ export interface Health {
   policyVersion: string;
   qDay: [number, number];
   activeScans: number;
+  authentication?: boolean;
   sandbox?: {
     mode: 'off' | 'best-effort' | 'required';
     filesystem: { state: 'enforced' | 'partial' | 'unavailable' | 'off'; detail?: string };

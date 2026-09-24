@@ -1,4 +1,4 @@
-import type { Comparison, Graph, Health, Report, ScanMeta } from './types';
+import type { AuditPage, Comparison, Graph, Health, Principal, Report, ScanMeta } from './types';
 
 const TOKEN_KEY = 'lattice.token';
 
@@ -55,6 +55,8 @@ const scanPath = (id: string) => `/api/scans/${encodeURIComponent(id)}`;
 
 export const api = {
   health: () => json<Health>('/api/health'),
+  whoami: () => json<Principal>('/api/whoami'),
+  audit: (limit: number) => json<AuditPage>(`/api/audit?limit=${limit}`),
   roots: () => json<{ name: string }[]>('/api/roots'),
   entries: (root: string, path: string) =>
     json<{ path: string; directories: string[]; files: number; truncated: boolean }>(

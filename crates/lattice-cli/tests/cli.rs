@@ -587,3 +587,140 @@ fn incremental_scans_reuse_unchanged_files_with_identical_output() {
     );
     assert!(text(&third.stdout).contains("SHA-512"));
 }
+
+#[test]
+fn issued_tokens_are_enforced_and_audited() {
+    use std::io::{BufRead, BufReader, Read as _, Write as _};
+    use std::net::TcpStream;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    project(root);
+
+    let issued = lattice(
+        &[
+            "token",
+            "--name",
+            "vera",
+            "--role",
+            "viewer",
+            "--users",
+            "users.toml",
+        ],
+        root,
+    );
+    assert_eq!(code(&issued), 0, "{}", text(&issued.stderr));
+    let token = text(&issued.stdout).trim().to_owned();
+    assert!(token.starts_with("lattice_"), "{token}");
+    let again = lattice(
+        &[
+            "token",
+            "--name",
+            "vera",
+            "--role",
+            "admin",
+            "--users",
+            "users.toml",
+        ],
+        root,
+    );
+    assert_eq!(code(&again), 2, "names are unique");
+    let users = fs::read_to_string(root.join("users.toml")).unwrap();
+    assert!(
+        !users.contains(&token),
+        "the users file holds digests, not tokens"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(root.join("users.toml"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lattice"))
+        .args([
+            "serve",
+            "--bind",
+            &format!("127.0.0.1:{port}"),
+            "--root",
+            "app=target-app",
+            "--data-dir",
+            "data",
+            "--users",
+            "users.toml",
+        ])
+        .current_dir(root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut banner = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut banner)
+        .unwrap();
+    let request = |method: &str, path: &str, token: Option<&str>| {
+        let auth = token.map_or_else(String::new, |t| format!("Authorization: Bearer {t}\r\n"));
+        let length = if method == "POST" {
+            "Content-Type: application/json\r\nContent-Length: 29\r\n"
+        } else {
+            ""
+        };
+        let body = if method == "POST" {
+            r#"{"root":"app","path":"src"} "#
+        } else {
+            ""
+        };
+        for _ in 0..50 {
+            if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
+                stream
+                    .write_all(
+                        format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\n{auth}{length}Connection: close\r\n\r\n{body}")
+                            .as_bytes(),
+                    )
+                    .unwrap();
+                let mut response = String::new();
+                stream.read_to_string(&mut response).unwrap();
+                return response;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        panic!("the server never answered");
+    };
+    let anonymous = request("GET", "/api/scans", None);
+    let viewer = request("GET", "/api/scans", Some(&token));
+    let refused = request("POST", "/api/scans", Some(&token));
+    child.kill().unwrap();
+    let _ = child.wait();
+    assert!(anonymous.starts_with("HTTP/1.1 401"), "{anonymous}");
+    assert!(viewer.starts_with("HTTP/1.1 200"), "{viewer}");
+    assert!(
+        refused.starts_with("HTTP/1.1 403"),
+        "a viewer cannot scan: {refused}"
+    );
+
+    let verified = lattice(&["audit", "verify", "data/audit.jsonl"], root);
+    assert_eq!(code(&verified), 0, "{}", text(&verified.stderr));
+    assert!(
+        text(&verified.stdout).contains("3 entries"),
+        "{}",
+        text(&verified.stdout)
+    );
+    let log = fs::read_to_string(root.join("data/audit.jsonl")).unwrap();
+    assert!(log.contains(r#""actor":"vera""#) && log.contains(r#""status":403"#));
+    fs::write(
+        root.join("data/audit.jsonl"),
+        log.replacen(r#""status":401"#, r#""status":200"#, 1),
+    )
+    .unwrap();
+    assert_eq!(
+        code(&lattice(&["audit", "verify", "data/audit.jsonl"], root)),
+        3
+    );
+}

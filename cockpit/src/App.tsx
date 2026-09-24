@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, api, setToken } from './api';
-import type { AssetReport, Graph, Health, Report, ScanMeta } from './types';
+import type { AssetReport, Graph, Health, Principal, Report, ScanMeta } from './types';
 import { Icon, Logo } from './ui';
 import { Overview } from './views/Overview';
 import { Inventory } from './views/Inventory';
@@ -9,9 +9,10 @@ import { GraphView } from './views/GraphView';
 import { Roadmap } from './views/Roadmap';
 import { Compare } from './views/Compare';
 import { Scans } from './views/Scans';
+import { Audit } from './views/Audit';
 import { when } from './format';
 
-type View = 'overview' | 'inventory' | 'graph' | 'roadmap' | 'compare' | 'scans';
+type View = 'overview' | 'inventory' | 'graph' | 'roadmap' | 'compare' | 'scans' | 'audit';
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -20,6 +21,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'roadmap', label: 'Roadmap' },
   { id: 'compare', label: 'Compare' },
   { id: 'scans', label: 'Scans' },
+  { id: 'audit', label: 'Audit log' },
 ];
 
 function readHash(): { view: View; scan: string | null } {
@@ -39,6 +41,7 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsToken, setNeedsToken] = useState(false);
+  const [me, setMe] = useState<Principal | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light' | null>(null);
 
   const handle = useCallback((e: unknown) => {
@@ -48,6 +51,7 @@ export function App() {
 
   const refreshScans = useCallback(async () => {
     try {
+      setMe(await api.whoami());
       const list = await api.scans();
       setScans(list);
       setScanId((current) => current ?? list.find((s) => s.status === 'done')?.id ?? null);
@@ -119,7 +123,7 @@ export function App() {
             <small>Quantum-risk cockpit</small>
           </div>
         </div>
-        {VIEWS.map((v) => (
+        {VIEWS.filter((v) => v.id !== 'audit' || me?.role === 'admin').map((v) => (
           <button key={v.id} className={`nav-item ${view === v.id ? 'active' : ''}`} onClick={() => setView(v.id)} aria-current={view === v.id ? 'page' : undefined}>
             <Icon name={v.id} />
             {v.label}
@@ -137,6 +141,22 @@ export function App() {
                 Q-day window {health.qDay[0]}–{health.qDay[1]}
               </span>
               <span>offline · read-only</span>
+              {me && health.authentication && (
+                <span>
+                  signed in as <strong>{me.name}</strong> ({me.role}){' '}
+                  <button
+                    className="link"
+                    onClick={() => {
+                      setToken(null);
+                      setMe(null);
+                      setScans([]);
+                      setNeedsToken(true);
+                    }}
+                  >
+                    sign out
+                  </button>
+                </span>
+              )}
               <span
                 title={health.sandbox ? `filesystem: ${health.sandbox.filesystem.state}; system calls: ${health.sandbox.syscalls.state}` : 'the server was started without confinement'}
                 style={{ color: health.sandbox && health.sandbox.filesystem.state === 'enforced' && health.sandbox.syscalls.state === 'enforced' ? 'var(--safe)' : 'var(--high)' }}
@@ -155,13 +175,13 @@ export function App() {
       <div className="main">
         <header className="topbar">
           <h1>{title}</h1>
-          {current && view !== 'scans' && view !== 'compare' && (
+          {current && view !== 'scans' && view !== 'compare' && view !== 'audit' && (
             <span className="faint">
               {current.subject} · {when(current.requested)}
             </span>
           )}
           <span className="spacer" />
-          {view !== 'scans' && view !== 'compare' && (
+          {view !== 'scans' && view !== 'compare' && view !== 'audit' && (
             <select className="select" value={scanId ?? ''} onChange={(e) => setScanId(e.target.value || null)} aria-label="Scan">
               {scans.length === 0 && <option value="">No scans yet</option>}
               {scans.map((s) => (
@@ -199,12 +219,14 @@ export function App() {
               </button>
             </div>
           )}
-          {view === 'scans' || view === 'compare' ? null : !scanId ? (
+          {view === 'scans' || view === 'compare' || view === 'audit' ? null : !scanId ? (
             <div className="panel empty">
               <p>No completed scan yet.</p>
-              <button className="btn primary" onClick={() => setView('scans')}>
-                <Icon name="plus" /> Start a scan
-              </button>
+              {me?.role !== 'viewer' && (
+                <button className="btn primary" onClick={() => setView('scans')}>
+                  <Icon name="plus" /> Start a scan
+                </button>
+              )}
             </div>
           ) : !report ? (
             <div className="panel empty">{current?.status === 'failed' ? `This scan failed: ${current.error ?? ''}` : 'Loading report…'}</div>
@@ -215,9 +237,11 @@ export function App() {
           {report && graph && view === 'graph' && <GraphView report={report} graph={graph} onOpen={open} />}
           {report && view === 'roadmap' && <Roadmap report={report} onOpen={open} />}
           {view === 'compare' && <Compare scans={scans} onError={handle} />}
+          {view === 'audit' && me?.role === 'admin' && <Audit onError={handle} />}
           {view === 'scans' && (
             <Scans
               scans={scans}
+              canScan={me?.role !== 'viewer'}
               onError={handle}
               onStarted={(meta) => {
                 setScans((list) => [meta, ...list]);

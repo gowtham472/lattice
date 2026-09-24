@@ -64,9 +64,14 @@ lattice sandbox-check
 
 ```bash
 sudo install -D -m 0600 /usr/share/doc/lattice/lattice.env.example /etc/lattice/lattice.env
-sudoedit /etc/lattice/lattice.env          # roots, bind address, token
+sudoedit /etc/lattice/lattice.env          # roots, bind address
+sudo lattice token --name alice --role operator --users /etc/lattice/users.toml
+sudo systemctl edit --full lattice         # uncomment LoadCredential and LATTICE_USERS
 sudo systemctl enable --now lattice
 ```
+
+Each `lattice token` prints the new token once; the users file keeps only its digest. Every API
+call is recorded in `/var/lib/lattice/audit.jsonl`; check it with `lattice audit verify`.
 
 The unit runs with a dynamic user and no capabilities, a read-only filesystem except its
 state directory, no outbound network, and a system-call allow-list. Inside it, LATTICE applies

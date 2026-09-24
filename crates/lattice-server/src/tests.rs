@@ -37,6 +37,7 @@ fn config(fixture: &Fixture, bind: &str, token: Option<&str>) -> ServerConfig {
         bind: bind.parse().unwrap(),
         roots: vec![("estate".into(), fixture.root.clone())],
         token: token.map(str::to_owned),
+        users: Vec::new(),
         data_dir: Some(fixture.data.clone()),
         ui_dir: None,
         // a template stamped long ago, as `lattice serve` builds it: every scan must re-stamp
@@ -341,4 +342,293 @@ async fn scan_lifecycle_artefacts_persistence_and_comparison() {
     let (status, report) = get(&restarted, &format!("/api/scans/{first}/report")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(report["subject"], "payments");
+}
+
+/// Three users, one per role; returns their tokens.
+fn with_users(config: &mut ServerConfig) -> [String; 3] {
+    let mut tokens = Vec::new();
+    for (name, role) in [
+        ("vera", Role::Viewer),
+        ("omar", Role::Operator),
+        ("ada", Role::Admin),
+    ] {
+        let (token, user) = access::issue(name, role).unwrap();
+        config.users.push(user);
+        tokens.push(token);
+    }
+    tokens.try_into().unwrap()
+}
+
+fn bearer(token: &str) -> String {
+    format!("Bearer {token}")
+}
+
+#[tokio::test]
+async fn roles_decide_what_each_user_may_do() {
+    let f = fixture();
+    let mut config = config(&f, "127.0.0.1:7443", None);
+    let [viewer, operator, admin] = with_users(&mut config);
+    let server = app(config).unwrap();
+    let scan = || Some(json!({"root": "estate", "path": "payments"}));
+
+    let as_ = |token: &str| bearer(token);
+    let (status, me, _) = call(
+        &server,
+        "GET",
+        "/api/whoami",
+        None,
+        &[("authorization", &as_(&viewer))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(me, json!({"name": "vera", "role": "viewer"}));
+
+    // viewers read, but neither browse roots nor start scans
+    for (method, path, body) in [
+        ("POST", "/api/scans", scan()),
+        ("GET", "/api/roots/estate/entries?path=", None),
+        ("GET", "/api/audit", None),
+    ] {
+        let (status, _, _) = call(
+            &server,
+            method,
+            path,
+            body,
+            &[("authorization", &as_(&viewer))],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "viewer {method} {path}");
+    }
+    let (status, _, _) = call(
+        &server,
+        "GET",
+        "/api/scans",
+        None,
+        &[("authorization", &as_(&viewer))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // operators start scans, recorded under their name, but cannot read the audit log
+    let (status, queued, _) = call(
+        &server,
+        "POST",
+        "/api/scans",
+        scan(),
+        &[("authorization", &as_(&operator))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(queued["requestedBy"], "omar");
+    let (status, _, _) = call(
+        &server,
+        "GET",
+        "/api/audit",
+        None,
+        &[("authorization", &as_(&operator))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // unknown and missing tokens are refused; health stays public
+    let (status, _, _) = call(
+        &server,
+        "GET",
+        "/api/scans",
+        None,
+        &[("authorization", "Bearer lattice_forged")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _, _) = call(&server, "GET", "/api/scans", None, &[]).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, health) = get(&server, "/api/health").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(health["authentication"], true);
+
+    // the admin sees every call, allowed or refused, and who made it
+    let (status, page, _) = call(
+        &server,
+        "GET",
+        "/api/audit?limit=100",
+        None,
+        &[("authorization", &as_(&admin))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let recent = page["recent"].as_array().unwrap();
+    let seen = |actor: &str, status: u16, path: &str| {
+        recent.iter().any(|e| {
+            e["actor"] == actor
+                && e["status"] == status
+                && e["path"].as_str().unwrap().starts_with(path)
+        })
+    };
+    assert!(seen("vera", 403, "/api/scans"));
+    assert!(seen("vera", 403, "/api/roots/estate/entries"));
+    assert!(seen("omar", 202, "/api/scans"));
+    assert!(seen("-", 401, "/api/scans"));
+    assert!(
+        !recent.iter().any(|e| e["path"] == "/api/health"),
+        "health is not audited"
+    );
+    assert!(page["entries"].as_u64().unwrap() >= 9);
+}
+
+#[tokio::test]
+async fn the_audit_log_survives_restarts_and_refuses_tampering() {
+    let f = fixture();
+    let mut first = config(&f, "127.0.0.1:7443", None);
+    let [viewer, _, _] = with_users(&mut first);
+    let users = first.users.clone();
+    let server = app(first).unwrap();
+    for _ in 0..3 {
+        call(
+            &server,
+            "GET",
+            "/api/scans",
+            None,
+            &[("authorization", &bearer(&viewer))],
+        )
+        .await;
+    }
+    drop(server);
+
+    let log = f.data.join(audit::FILE_NAME);
+    let bytes = std::fs::read(&log).unwrap();
+    let verified = audit::verify(&bytes).unwrap();
+    assert_eq!(verified.entries, 3);
+
+    // a restart continues the chain
+    let mut again = config(&f, "127.0.0.1:7443", None);
+    again.users = users.clone();
+    let server = app(again).unwrap();
+    call(
+        &server,
+        "GET",
+        "/api/scans",
+        None,
+        &[("authorization", &bearer(&viewer))],
+    )
+    .await;
+    drop(server);
+    assert_eq!(
+        audit::verify(&std::fs::read(&log).unwrap())
+            .unwrap()
+            .entries,
+        4
+    );
+
+    // editing a line breaks the chain, and the server will not start on it
+    let text = std::fs::read_to_string(&log).unwrap();
+    std::fs::write(&log, text.replacen("\"status\":200", "\"status\":404", 1)).unwrap();
+    let mut tampered = config(&f, "127.0.0.1:7443", None);
+    tampered.users = users;
+    assert!(matches!(app(tampered), Err(ServerError::Audit(_))));
+}
+
+#[test]
+fn audit_verification_names_the_broken_line() {
+    let log = audit::AuditLog::open(None).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let persisted = audit::AuditLog::open(Some(dir.path())).unwrap();
+    for i in 0..4 {
+        let event = || audit::Event {
+            actor: Some(("ada", "admin")),
+            method: "GET",
+            path: "/api/scans",
+            status: 200,
+            peer: Some(format!("127.0.0.1:{}", 5000 + i)),
+        };
+        log.record(event(), format!("2026-09-24T00:00:0{i}Z"));
+        persisted.record(event(), format!("2026-09-24T00:00:0{i}Z"));
+    }
+    assert_eq!(log.recent(10).0.len(), 4);
+    let bytes = std::fs::read(dir.path().join(audit::FILE_NAME)).unwrap();
+    let lines: Vec<&[u8]> = bytes
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
+    let join = |lines: &[&[u8]]| {
+        let mut out = lines.join(&b'\n');
+        out.push(b'\n');
+        out
+    };
+    assert_eq!(audit::verify(&join(&lines)).unwrap().entries, 4);
+
+    let removed = [lines[0], lines[2], lines[3]];
+    assert!(matches!(
+        audit::verify(&join(&removed)),
+        Err(audit::AuditError::Broken { line: 2, .. })
+    ));
+    let reordered = [lines[0], lines[2], lines[1], lines[3]];
+    assert!(matches!(
+        audit::verify(&join(&reordered)),
+        Err(audit::AuditError::Broken { line: 2, .. })
+    ));
+    let last = String::from_utf8(lines[3].to_vec())
+        .unwrap()
+        .replace("ada", "eve");
+    let edited = [lines[0], lines[1], lines[2], last.as_bytes()];
+    // an edit to the last line is only caught once something chains after it, or by its head
+    let head = audit::verify(&join(&lines)).unwrap().head;
+    assert_ne!(audit::verify(&join(&edited)).unwrap().head, head);
+    let edited_middle = String::from_utf8(lines[1].to_vec())
+        .unwrap()
+        .replace("ada", "eve");
+    let edited = [lines[0], edited_middle.as_bytes(), lines[2], lines[3]];
+    assert!(matches!(
+        audit::verify(&join(&edited)),
+        Err(audit::AuditError::Broken { line: 3, .. })
+    ));
+    assert!(matches!(
+        audit::verify(&bytes[..bytes.len() - 1]),
+        Err(audit::AuditError::Broken { .. })
+    ));
+}
+
+#[test]
+fn users_files_are_checked_and_tokens_authenticate() {
+    let (token, user) = access::issue("ada", Role::Admin).unwrap();
+    assert!(token.starts_with(access::TOKEN_PREFIX));
+    let file = format!(
+        "[[user]]\nname = \"ada\"\nrole = \"admin\"\ntoken_blake3 = \"{}\"\n",
+        user.token_blake3
+    );
+    let users = access::parse_users(&file).unwrap();
+    let table = access::Access::new(users.clone(), None).unwrap();
+    assert_eq!(
+        table.authenticate(Some(&bearer(&token))),
+        Some(Principal {
+            name: "ada".into(),
+            role: Role::Admin
+        })
+    );
+    assert_eq!(table.authenticate(Some("Bearer lattice_00")), None);
+    assert_eq!(table.authenticate(None), None);
+
+    let twice = [users.clone(), users].concat();
+    assert!(access::Access::new(twice, None).is_err(), "duplicate names");
+    assert!(
+        access::parse_users("[[user]]\nname = \"x\"\nrole = \"root\"\ntoken_blake3 = \"00\"\n")
+            .is_err()
+    );
+    let short =
+        access::parse_users("[[user]]\nname = \"x\"\nrole = \"viewer\"\ntoken_blake3 = \"00\"\n")
+            .unwrap();
+    assert!(
+        access::Access::new(short, None).is_err(),
+        "digest must be 32 bytes"
+    );
+    assert!(access::issue("../x", Role::Viewer).is_err());
+
+    // no credentials on loopback: everyone is the local admin
+    let open = access::Access::new(Vec::new(), None).unwrap();
+    assert_eq!(open.authenticate(None).unwrap().role, Role::Admin);
+    // the legacy token is an admin named "token"
+    let legacy = access::Access::new(Vec::new(), Some("s3cret")).unwrap();
+    assert_eq!(
+        legacy.authenticate(Some("Bearer s3cret")).unwrap().name,
+        "token"
+    );
 }

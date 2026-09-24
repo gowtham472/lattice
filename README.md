@@ -40,6 +40,11 @@ lattice verify demo.cbom.json --public-key keys/lattice-signing.pub
 # validate against the official CycloneDX 1.6 schema (offline)
 lattice validate demo.cbom.json
 
+# serve the cockpit to named users with roles; every call lands in a hash-chained audit log
+lattice token --name alice --role operator --users users.toml
+lattice serve --root estate=/srv/code --users users.toml --data-dir .lattice
+lattice audit verify .lattice/audit.jsonl
+
 # CI gate: exit 1 on new or worsened high-risk crypto, 3 if the signed baseline fails verification
 lattice ci examples/demo-estate --baseline demo.cbom.json --trusted-key keys/lattice-signing.pub --fail-on high
 

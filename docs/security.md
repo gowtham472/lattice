@@ -134,8 +134,13 @@ analyses (see [decisions.md §9](decisions.md)).
 
 ## 8. The cockpit and API
 
-- Binds **127.0.0.1** by default; binding any other address requires a bearer token (compared
-  through BLAKE3 digests). *Enforced.*
+- Binds **127.0.0.1** by default; binding any other address requires credentials. *Enforced.*
+- **Named users with roles.** A users file lists each user, a role and the BLAKE3 digest of the
+  user's bearer token (the file holds no secrets; `lattice token` issues a random 256-bit token
+  and its entry, owner-only). *viewer* reads scans, reports, CBOMs, graphs and PDFs; *operator*
+  also browses roots and starts scans; *admin* also reads the audit log. A missing or unknown
+  token is refused with 401, too weak a role with 403. Tokens are looked up by digest, so timing
+  does not depend on how much of a token is right. *Enforced.*
 - Loopback-bound servers reject requests whose `Host` is not a loopback name, which defeats DNS
   rebinding. *Enforced.*
 - Scans may read only inside operator-declared roots; paths are canonicalised and symlink
@@ -144,7 +149,14 @@ analyses (see [decisions.md §9](decisions.md)).
   frame denial, 16 KiB request bodies, unknown fields rejected, a bounded scan queue.
   *Enforced.*
 - Confined after binding: the server can accept connections but never open one. *Enforced.*
-- Roles (viewer, analyst, admin), an append-only audit log and mTLS. *Planned.*
+- **Audit log.** Every API call but the health check, allowed or refused, is appended to
+  `<data-dir>/audit.jsonl` with time, user, role, request, status and peer. Each line carries a
+  sequence number and the BLAKE3 of the line before it; the server verifies the whole chain before
+  starting and refuses to run on a broken one, and `lattice audit verify` checks a copy (exit 3
+  on tampering, naming the line). Scans record who started them. The chain detects edits,
+  deletions and reordering; against wholesale replacement, ship the log or its head hash off the
+  host. *Enforced.*
+- mTLS and TLS termination in the server. *Planned*; terminate TLS in a reverse proxy meanwhile.
 
 ---
 

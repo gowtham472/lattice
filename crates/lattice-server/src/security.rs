@@ -3,16 +3,19 @@
 //! * **Host check.** A loopback-bound server accepts only `localhost` / loopback `Host` headers,
 //!   which defeats DNS rebinding: a hostile web page cannot reach the API through a name it
 //!   controls that resolves to 127.0.0.1.
-//! * **Bearer token.** Required for every API call except `/api/health` whenever one is
-//!   configured, and the server refuses to bind a non-loopback address without one. Compared
-//!   through BLAKE3 digests, so the comparison time does not depend on the token.
+//! * **Authentication and roles.** Every API call except `/api/health` is made by a principal
+//!   with a role (see [`crate::access`]); the server refuses to bind a non-loopback address
+//!   unless credentials are configured. A missing or unknown token is 401, too weak a role 403.
+//! * **Audit.** Every API call except `/api/health`, allowed or refused, is appended to the
+//!   hash-chained audit log (see [`crate::audit`]).
 //! * **Confinement.** Clients name a configured root and a relative path; the path is
 //!   canonicalised (resolving symlinks) and must stay inside the root.
 
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -33,23 +36,55 @@ pub async fn guard(State(state): State<Arc<AppState>>, request: Request, next: N
             .into_response();
         }
     }
-    let path = request.uri().path();
-    if let Some(expected) = &state.token_digest
-        && path.starts_with("/api/")
-        && path != "/api/health"
-    {
-        let presented = request
+    let path = request.uri().path().to_owned();
+    if !path.starts_with("/api/") {
+        return next.run(request).await;
+    }
+    let Some(required) = crate::access::required_role(request.method(), &path) else {
+        return next.run(request).await;
+    };
+    let method = request.method().to_string();
+    let target = request
+        .uri()
+        .path_and_query()
+        .map_or(path, |p| p.as_str().to_owned());
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.to_string());
+    let principal = state.access.authenticate(
+        request
             .headers()
             .get(header::AUTHORIZATION)
-            .and_then(|h| h.to_str().ok())
-            .and_then(|h| h.strip_prefix("Bearer "))
-            .map(|token| blake3::hash(token.trim().as_bytes()));
-        if presented.as_ref() != Some(expected) {
-            return ApiError::new(StatusCode::UNAUTHORIZED, "a valid bearer token is required")
-                .into_response();
+            .and_then(|h| h.to_str().ok()),
+    );
+    let response = match &principal {
+        None => ApiError::new(StatusCode::UNAUTHORIZED, "a valid bearer token is required")
+            .into_response(),
+        Some(principal) if principal.role < required => ApiError::new(
+            StatusCode::FORBIDDEN,
+            format!("this needs the {} role", required.as_str()),
+        )
+        .into_response(),
+        Some(principal) => {
+            let mut request = request;
+            request.extensions_mut().insert(principal.clone());
+            next.run(request).await
         }
-    }
-    next.run(request).await
+    };
+    state.audit.record(
+        crate::audit::Event {
+            actor: principal
+                .as_ref()
+                .map(|p| (p.name.as_str(), p.role.as_str())),
+            method: &method,
+            path: &target,
+            status: response.status().as_u16(),
+            peer,
+        },
+        crate::now().1,
+    );
+    response
 }
 
 fn is_loopback_host(host: &str) -> bool {

@@ -76,9 +76,45 @@ enum Command {
     Serve(ServeArgs),
     /// Show what the sandbox enforces on this machine, by attempting forbidden operations.
     SandboxCheck(SandboxCheckArgs),
+    /// Issue an API token for a named user with a role.
+    Token(TokenArgs),
+    /// Work with the server's audit log.
+    #[command(subcommand)]
+    Audit(AuditCommand),
     /// Build, install and inspect signed knowledge bundles.
     #[command(subcommand)]
     Knowledge(KnowledgeCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum AuditCommand {
+    /// Check that an audit log's hash chain is intact.
+    Verify(AuditVerifyArgs),
+}
+
+#[derive(Debug, Args)]
+struct AuditVerifyArgs {
+    /// The log (<data-dir>/audit.jsonl).
+    file: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct TokenArgs {
+    /// User name recorded in the audit log.
+    #[arg(long)]
+    name: String,
+
+    /// viewer (read), operator (also start scans) or admin (also read the audit log).
+    #[arg(long, value_parser = parse_role)]
+    role: lattice_server::Role,
+
+    /// Append the entry to this users file (created with owner-only permissions).
+    #[arg(long)]
+    users: Option<PathBuf>,
+}
+
+fn parse_role(value: &str) -> Result<lattice_server::Role, String> {
+    value.parse()
 }
 
 #[derive(Debug, Subcommand)]
@@ -348,7 +384,7 @@ struct ValidateArgs {
 
 #[derive(Debug, Args)]
 struct ServeArgs {
-    /// Address to listen on. Anything other than loopback requires --token.
+    /// Address to listen on. Anything other than loopback requires --users or --token.
     #[arg(long, default_value = "127.0.0.1:7443")]
     bind: std::net::SocketAddr,
 
@@ -356,7 +392,11 @@ struct ServeArgs {
     #[arg(long = "root", value_name = "NAME=PATH", required = true, value_parser = parse_root)]
     roots: Vec<(String, PathBuf)>,
 
-    /// Bearer token for the API. Required when not bound to loopback.
+    /// Users file: named users, their roles and token digests (see `lattice token`).
+    #[arg(long, env = "LATTICE_USERS")]
+    users: Option<PathBuf>,
+
+    /// A single admin bearer token, for deployments without a users file.
     #[arg(long, env = "LATTICE_TOKEN", hide_env_values = true)]
     token: Option<String>,
 
@@ -444,6 +484,8 @@ fn main() -> ExitCode {
         Command::Keygen(args) => keygen(args).map(|()| EXIT_OK),
         Command::Sign(args) => sign(args).map(|()| EXIT_OK),
         Command::Verify(args) => verify(args, sandbox),
+        Command::Token(args) => token(args).map(|()| EXIT_OK),
+        Command::Audit(AuditCommand::Verify(args)) => audit_verify(args, sandbox),
         Command::Report(args) => report(args, sandbox),
         Command::Validate(args) => validate(args, sandbox),
         Command::Serve(args) => serve(args, sandbox).map(|()| EXIT_OK),
@@ -1017,6 +1059,73 @@ fn report(args: ReportArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     Ok(EXIT_OK)
 }
 
+fn token(args: TokenArgs) -> Result<()> {
+    let (token, user) =
+        lattice_server::access::issue(&args.name, args.role).map_err(anyhow::Error::msg)?;
+    let entry = format!(
+        "[[user]]\nname = {:?}\nrole = {:?}\ntoken_blake3 = {:?}\n",
+        user.name,
+        user.role.as_str(),
+        user.token_blake3
+    );
+    match &args.users {
+        Some(path) => {
+            if path.exists() {
+                let existing = lattice_server::access::parse_users(&read_text(path)?)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+                if existing.iter().any(|u| u.name == user.name) {
+                    bail!("{} already has a user named {}", path.display(), user.name);
+                }
+            }
+            let mut file = fs::OpenOptions::new();
+            file.create(true).append(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut file, 0o600);
+            let mut file = file
+                .open(path)
+                .with_context(|| format!("opening {}", path.display()))?;
+            writeln!(file)?;
+            file.write_all(entry.as_bytes())?;
+            eprintln!(
+                "added {} ({}) to {}",
+                user.name,
+                user.role.as_str(),
+                path.display()
+            );
+        }
+        None => {
+            eprintln!("add this to the users file:");
+            print!("{entry}");
+        }
+    }
+    eprintln!("token for {} (shown once, store it securely):", user.name);
+    println!("{token}");
+    Ok(())
+}
+
+fn audit_verify(args: AuditVerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    let bytes = fs::read(&args.file).with_context(|| format!("reading {}", args.file.display()))?;
+    confine(sandbox, &[], &[])?;
+    match lattice_server::audit::verify(&bytes) {
+        Ok(verified) => {
+            println!(
+                "verified {}: {} entries, chain intact, head {}",
+                args.file.display(),
+                verified.entries,
+                verified.head
+            );
+            Ok(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!(
+                "lattice: audit log verification FAILED for {}: {error}",
+                args.file.display()
+            );
+            Ok(EXIT_VERIFICATION)
+        }
+    }
+}
+
 fn validate(args: ValidateArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     let text = read_text(&args.cbom)?;
     confine(sandbox, &[], &[])?;
@@ -1063,10 +1172,17 @@ fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
     }
     fs::create_dir_all(&args.data_dir)
         .with_context(|| format!("creating {}", args.data_dir.display()))?;
+    // read before confinement: the users file stays out of the sandbox's reach
+    let users = match &args.users {
+        Some(path) => lattice_server::access::parse_users(&read_text(path)?)
+            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?,
+        None => Vec::new(),
+    };
     let mut config = lattice_server::ServerConfig {
         bind: args.bind,
         roots: args.roots,
         token: args.token,
+        users,
         data_dir: Some(args.data_dir.clone()),
         ui_dir: ui,
         engine,
@@ -1089,8 +1205,9 @@ fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
             read.push(ui);
         }
         let data = args.data_dir.join("scans");
+        let audit = args.data_dir.join(lattice_server::audit::FILE_NAME);
         let cache = args.cache.as_deref().map(cache_marker);
-        let mut write: Vec<&Path> = vec![&data];
+        let mut write: Vec<&Path> = vec![&data, &audit];
         if let Some(cache) = &cache {
             write.push(cache);
         }

@@ -97,7 +97,8 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Bearer-token authentication, loopback by default, DNS-rebinding protection | Delivered |
 | Signed knowledge bundles updated independently of releases, with rollback protection | Delivered |
 | Incremental scans: a content-addressed cache reuses unchanged files, with byte-identical output | Delivered |
-| Role-based access control and an audit log | Planned |
+| Named users with viewer, operator and admin roles; a hash-chained, verifiable audit log of every API call | Delivered |
+| TLS and mutual-TLS client authentication in the server | Planned (reverse proxy meanwhile) |
 | Cockpit embedded in the binary | Planned; shipped as static files beside it |
 
 ---

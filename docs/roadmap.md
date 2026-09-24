@@ -56,6 +56,8 @@ Each phase is one commit in the history.
     scheduled against the India DST 2027–2029 timeline, with the team size that meets it.
 14. **Executive report**: a deterministic, signed PDF from the CLI (`scan --pdf`, `report`) and
     the cockpit.
+15. **Access control**: named users with viewer, operator and admin roles, and a hash-chained
+    audit log of every API call that the server verifies before starting.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -68,7 +70,7 @@ In order of value to an operator:
 
 1. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
    read-only.
-2. **Access control**: roles, an audit log and mTLS for multi-user deployments.
+2. **TLS and mTLS** in the server, with client certificates mapped to users.
 3. **HSM/TPM discovery** through PKCS#11.
 4. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
 

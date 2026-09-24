@@ -6,12 +6,15 @@ import { Icon, Panel } from '../ui';
 
 export function Scans({
   scans,
+  canScan,
   onError,
   onStarted,
   onOpen,
   onRefresh,
 }: {
   scans: ScanMeta[];
+  /** Viewers see history but cannot start scans. */
+  canScan: boolean;
   onError: (e: unknown) => void;
   onStarted: (meta: ScanMeta) => void;
   onOpen: (id: string) => void;
@@ -28,9 +31,11 @@ export function Scans({
             <button className="btn" onClick={() => void onRefresh()}>
               <Icon name="refresh" /> Refresh
             </button>
-            <button className="btn primary" onClick={() => setLaunching(true)}>
-              <Icon name="plus" /> New scan
-            </button>
+            {canScan && (
+              <button className="btn primary" onClick={() => setLaunching(true)}>
+                <Icon name="plus" /> New scan
+              </button>
+            )}
           </span>
         }
       >
@@ -65,7 +70,10 @@ export function Scans({
                     <td className="mono">
                       {s.root}:{s.path || '/'}
                     </td>
-                    <td>{when(s.requested)}</td>
+                    <td>
+                      {when(s.requested)}
+                      {s.requestedBy && <div className="faint">by {s.requestedBy}</div>}
+                    </td>
                     <td className="num">{s.summary?.assets ?? '–'}</td>
                     <td className="num">{s.summary?.moscaUrgent ?? '–'}</td>
                     <td className="num">{s.summary?.critical ?? '–'}</td>

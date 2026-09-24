@@ -1097,6 +1097,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "blake3",
+ "getrandom 0.3.4",
+ "hex",
  "http-body-util",
  "lattice-cbom",
  "lattice-core",
@@ -1109,6 +1111,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "toml",
  "tower",
  "tower-http",
  "tracing",

@@ -48,6 +48,7 @@ const ICONS: Record<string, string> = {
   roadmap: 'M4 19V5M4 5h11l-2 4 2 4H4',
   compare: 'M8 3v18M16 3v18M3 8h5M16 16h5',
   scans: 'M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M4 12h16',
+  audit: 'M9 4h6M9 4a1 1 0 0 0-1 1v1h8V5a1 1 0 0 0-1-1M8 5H6v15h12V5h-2M9 11h6M9 15h4',
   download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
   plus: 'M12 5v14M5 12h14',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6',
