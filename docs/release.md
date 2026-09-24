@@ -3,21 +3,26 @@
 ## What a release contains
 
 `scripts/release.sh` builds, for each target (`x86_64-unknown-linux-musl`,
-`aarch64-unknown-linux-musl`):
+`aarch64-unknown-linux-musl`, `x86_64-pc-windows-gnu`):
 
 | File | Purpose |
 |---|---|
 | `lattice-<v>-<target>.tar.gz` | Static binary (`bin/lattice`), cockpit, knowledge base, rules, demo estate, docs, systemd unit |
+| `lattice-<v>-x86_64-pc-windows-gnu.zip` | The same for Windows (`bin/lattice.exe`), without the systemd unit; a reproducible zip |
 | `lattice-<v>-<target>.sbom.cdx.json` | CycloneDX 1.6 SBOM: the archive's SHA-256, every Rust crate compiled in (with crates.io checksums and licences), every npm package in the cockpit bundle, every file with its SHA-256 |
 | `lattice-<v>-<target>.sbom.cdx.json.sig.json` | ML-DSA-65 signature over the SBOM (when built with a release key) |
-| `lattice-<v>-<target>.cbom.json` | LATTICE's CBOM of its own binary, produced by the binary itself under its own sandbox |
+| `lattice-<v>-<target>.cbom.json` | LATTICE's CBOM of that target's binary, produced by the host build under its own sandbox |
 | `SHA256SUMS` | SHA-256 of everything above |
 
 A note on the self-CBOM: LATTICE's binary carries the constant tables its binary collector
 searches for (the AES S-box, MD5 and ML-KEM constants, among others), and constant-table detection
 cannot tell a table kept for searching from one used for computing. The CBOM therefore lists those
 algorithms alongside the ones LATTICE actually uses (ML-DSA-65 with SHA-3/SHAKE for signatures,
-SHA-256 and BLAKE3 for digests). The occurrences say `byte-signature`, which is the cue.
+SHA-256 and BLAKE3 for digests). The occurrences say `byte-signature`, which is the cue. For the
+same reason the library list names GnuTLS, LibreSSL and OpenSSL with versions: those are the
+release strings in LATTICE's own library knowledge base, not linked libraries. BoringSSL is real
+(aws-lc, the cryptography under LATTICE's TLS, is a BoringSSL fork), as is Windows CNG in the
+Windows build, which it uses for random numbers.
 
 ML-DSA signing is hedged (randomised, FIPS 204), so two signatures over the same SBOM differ;
 everything else in a release is byte-reproducible.
@@ -39,6 +44,10 @@ The release key is an ML-DSA-65 key from `lattice keygen`. Keep the private half
 the public half separately from the release (a website, a signed commit, an out-of-band channel).
 
 ## Windows
+
+`scripts/release.sh` builds the Windows package with the others. Unzip it anywhere and run
+`bin\lattice.exe`; `serve` finds the cockpit in `share\lattice\cockpit` beside it. To build
+only the binary:
 
 ```bash
 rustup target add x86_64-pc-windows-gnu
