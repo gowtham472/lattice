@@ -442,7 +442,8 @@ pub fn quantum_breakability(asset: &CryptoAsset) -> (f64, String) {
             QuantumClass::Grover => {
                 let bits = strength.as_ref().and_then(|s| s.classical_bits);
                 match spec.primitive {
-                    Primitive::Hash | Primitive::Xof => match spec.output_bits {
+                    // an XOF's output is as long as asked for: its security strength is the measure
+                    Primitive::Hash | Primitive::Xof => match spec.output_bits.or(spec.strength) {
                         Some(384..) => (
                             0.1,
                             format!(

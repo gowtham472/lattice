@@ -1046,6 +1046,7 @@ dependencies = [
  "lattice-risk",
  "lattice-sandbox",
  "lattice-server",
+ "lattice-tracer",
  "serde",
  "serde_json",
  "tempfile",
@@ -1192,6 +1193,19 @@ dependencies = [
  "toml",
  "tower",
  "tower-http",
+ "tracing",
+]
+
+[[package]]
+name = "lattice-tracer"
+version = "0.1.0"
+dependencies = [
+ "goblin",
+ "lattice-collectors",
+ "lattice-core",
+ "libc",
+ "regex",
+ "thiserror",
  "tracing",
 ]
 

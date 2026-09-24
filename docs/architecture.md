@@ -325,6 +325,20 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   rules and library knowledge. Unchanged files are not parsed again; any rebuild or knowledge
   change starts afresh; only clean results are cached. Output is byte-identical with or without
   the cache (tested).
+- **Runtime traces.** `lattice trace` (Linux, root) resolves, from the ELF dynamic symbols of
+  libcrypto and libssl, the file offsets of the calls that select cryptography: the
+  `EVP_*_fetch` family and `EVP_PKEY_CTX_new_from_name` (algorithm name), every legacy getter the
+  knowledge base names (`EVP_des_ede3_cbc`), `RSA_generate_key_ex` (key size), the cipher-list
+  setters and `SSL_CTX_ctrl` filtered to `SSL_CTRL_SET_GROUPS_LIST` (92). It defines them as
+  uprobes in tracefs, with the kernel fetching the one argument needed, and reads a private trace
+  instance, so global tracing is untouched and every probe is removed afterwards, also on
+  interruption. OpenSSL enumerates everything it supports while it initialises and while it
+  builds a TLS context; entry and return probes on `OPENSSL_init_crypto` and `SSL_CTX_new_ex`
+  mark those windows per thread, and calls inside them are counted, never recorded as use. The
+  aggregated `lattice-trace/1` file, placed in the estate, becomes runtime evidence: each
+  algorithm, group and suite it names is Confirmed ("called by a running process"), and a fetch
+  through `EVP_SIGNATURE_fetch` or `EVP_KEM_fetch` pins what the algorithm is used for. The
+  mechanism is the kernel's uprobe tracer rather than eBPF bytecode (see decisions §3).
 - **Key custody.** A key in an HSM, smart card, TPM or cloud key service never appears as a file,
   but the configuration that uses it names it. The config collector finds PKCS#11 URIs (RFC 7512,
   dropping the query where `pin-value` lives), OpenSSL `engine:` and TPM persistent-handle
@@ -370,7 +384,7 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 
 | Item | Status |
 |------|--------|
-| eBPF runtime hooks (`aya`) on crypto-library calls | Planned; captured traffic provides the Confirmed state today |
+| Runtime tracing beyond OpenSSL (Go, BoringSSL, rustls, the JVM) | Planned; OpenSSL is traced today, captures cover the rest |
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
 | Live scan progress over WebSocket | Not built; the cockpit polls |

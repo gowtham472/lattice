@@ -1,0 +1,21 @@
+[package]
+name = "lattice-tracer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Records which cryptography running processes ask OpenSSL for, through kernel uprobes"
+
+[dependencies]
+goblin.workspace = true
+lattice-collectors = { path = "../lattice-collectors" }
+lattice-core = { path = "../lattice-core" }
+regex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

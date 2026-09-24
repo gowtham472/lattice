@@ -120,7 +120,8 @@ const WAVE_NAMES: [&str; 4] = [
 /// Rounds to `places` decimals, so reports stay readable and stable.
 fn round(value: f64, places: i32) -> f64 {
     let scale = 10f64.powi(places);
-    (value * scale).round() / scale
+    // `+ 0.0` turns the -0.0 of an empty float sum into 0
+    (value * scale).round() / scale + 0.0
 }
 
 /// Estimates the person-weeks of carrying out `recommendation` on `asset`: `None` when nothing
@@ -407,6 +408,18 @@ pub fn recommend(
                         after_bytes: ml_dsa_bytes(signature_set),
                         basis: "public key + signature".into(),
                     }),
+                },
+                Primitive::Xof if !assessment.broken_now && assessment.quantum_breakability > 0.2 => Recommendation {
+                    action: "replace".into(),
+                    target: "SHAKE256".into(),
+                    rationale: format!("{} offers 128-bit security, which quantum search halves; SHAKE256 keeps 128 bits.", spec.name),
+                    size_delta: None,
+                },
+                Primitive::Kdf if spec.id == "pbkdf2" && !assessment.broken_now && assessment.quantum_breakability > 0.2 => Recommendation {
+                    action: "upgrade".into(),
+                    target: "PBKDF2-HMAC-SHA-256 deriving 256-bit keys at ≥600,000 iterations, or Argon2id".into(),
+                    rationale: "The derived key length is not visible here; keys shorter than 256 bits lose half their strength to quantum search.".into(),
+                    size_delta: None,
                 },
                 Primitive::Hash | Primitive::Xof if assessment.broken_now => Recommendation {
                     action: "replace".into(),

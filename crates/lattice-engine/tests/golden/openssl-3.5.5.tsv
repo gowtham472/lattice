@@ -1,6 +1,6 @@
 # OpenSSL 3.5.5 (openssl-3.5.5.tar.gz, SHA-256 b28c91532a8b65a1f983b4c28b7488174e4a01008e29ce8e69bd789f28bc2a89)
 # scanned at SOURCE_DATE_EPOCH=1790121600 with policy 2026.09.1, knowledge 2026.09.1, rules 2026.09.1
-# assets 1033 · quantum-vulnerable 880 · broken now 116 · critical 153 · high 338
+# assets 1033 · quantum-vulnerable 876 · broken now 116 · critical 153 · high 338
 # bom-ref	name	tier	priority	action	occurrences
 crypto/algorithm/3des/13788beba7e6d8f7	3DES-CFB1	critical	85	replace	1
 crypto/algorithm/3des/3ab79c8baa88e766	3DES-CBC	critical	85	replace	2
@@ -273,10 +273,10 @@ crypto/algorithm/ml-dsa/b902d75fb08b9695	ML-DSA-44	info	0	retain	17
 crypto/algorithm/ml-kem/21f3ced76b4aca7b	ML-KEM-512	info	0	retain	9
 crypto/algorithm/ml-kem/52b9c3a8dd39caaf	ML-KEM-1024	info	0	retain	9
 crypto/algorithm/ml-kem/a198ac644dc48b33	ML-KEM-768	info	0	retain	10
-crypto/algorithm/pbkdf2/6fb27a03022c264d	PBKDF2	low	17	replace	3
-crypto/algorithm/pbkdf2/c3d080cca07989b6	PBKDF2	low	18	replace	1
-crypto/algorithm/pbkdf2/da0e8a747839e347	PBKDF2	info	0	replace	1
-crypto/algorithm/pbkdf2/e6d0fcc96715873e	PBKDF2	low	17	replace	1
+crypto/algorithm/pbkdf2/6fb27a03022c264d	PBKDF2	low	17	upgrade	3
+crypto/algorithm/pbkdf2/c3d080cca07989b6	PBKDF2	low	18	upgrade	1
+crypto/algorithm/pbkdf2/da0e8a747839e347	PBKDF2	info	0	upgrade	1
+crypto/algorithm/pbkdf2/e6d0fcc96715873e	PBKDF2	low	17	upgrade	1
 crypto/algorithm/poly1305/7eea8e382cc5b93f	Poly1305	low	18	replace	1
 crypto/algorithm/rc2/187cde05c342f2bd	RC2-64-CBC	critical	100	replace	1
 crypto/algorithm/rc2/23627463010bb186	RC2-OFB	critical	100	replace	1
@@ -358,10 +358,10 @@ crypto/algorithm/sha3-384/fc9900039b63ae72	SHA3-384	info	0	retain	1
 crypto/algorithm/sha3-512/74f11d4891cc4fa3	SHA3-512	info	0	retain	3
 crypto/algorithm/sha3-512/da157c69f98690fd	SHA3-512	info	0	retain	2
 crypto/algorithm/shake128/d876584e4a6b9ad6	SHAKE128	low	17	replace	3
-crypto/algorithm/shake256/2b891386f847d343	SHAKE256	low	18	replace	1
-crypto/algorithm/shake256/6443f394b6ec960d	SHAKE256	info	0	replace	2
-crypto/algorithm/shake256/afcaa3a7093d9175	SHAKE256	low	17	replace	1
-crypto/algorithm/shake256/f93fe655a0e04f33	SHAKE256	low	17	replace	6
+crypto/algorithm/shake256/2b891386f847d343	SHAKE256	info	1	retain	1
+crypto/algorithm/shake256/6443f394b6ec960d	SHAKE256	info	0	retain	2
+crypto/algorithm/shake256/afcaa3a7093d9175	SHAKE256	info	1	retain	1
+crypto/algorithm/shake256/f93fe655a0e04f33	SHAKE256	info	1	retain	6
 crypto/algorithm/slh-dsa/acacecc8197649f9	SLH-DSA-shake-256s	info	0	retain	2
 crypto/algorithm/slh-dsa/ce15a5ae56c32075	SLH-DSA-sha2-128s	info	0	retain	2
 crypto/algorithm/slh-dsa/dd432a3f3b2c5f16	SLH-DSA-shake-128s	info	0	retain	2

@@ -45,6 +45,9 @@ enum Format {
 fn format_of(path: &str) -> Option<Format> {
     let file = path.rsplit('/').next().unwrap_or(path);
     let lower = file.to_ascii_lowercase();
+    if lower.ends_with(crate::trace::SUFFIX) {
+        return None;
+    }
     if matches!(
         lower.as_str(),
         "package-lock.json"

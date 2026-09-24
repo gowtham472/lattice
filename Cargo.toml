@@ -11,6 +11,7 @@ members = [
     "crates/lattice-server",
     "crates/lattice-sandbox",
     "crates/lattice-report",
+    "crates/lattice-tracer",
 ]
 exclude = ["fuzz"]
 resolver = "3"

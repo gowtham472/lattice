@@ -14,7 +14,7 @@ document to read when someone asks "why did you build it *that* way?"
 | Single air-gapped binary | ✅ one static file | ❌ needs interpreter + deps | ✅ single binary |
 | Best-in-class X.509 parsing | ✅ `x509-parser` | partial (`cryptography`) | weaker |
 | Binary parsing (ELF/PE/Mach-O) | ✅ `goblin` pure-Rust | via bindings (`pyelftools`, `LIEF`) | `debug/elf` (ELF only, well) |
-| Kernel confinement and eBPF | ✅ `landlock`, `seccompiler`; `aya` for eBPF | C toolchain (`bcc`) | `cilium/ebpf` (good) |
+| Kernel confinement and runtime tracing | ✅ `landlock`, `seccompiler`; kernel uprobes through tracefs | C toolchain (`bcc`) | `cilium/ebpf` (good) |
 | Memory safety on hostile input | ✅ guaranteed | ✅ (but slow) | ✅ (GC) |
 | Speed on large estates | ✅ no GC, `rayon` | ❌ slow | ✅ good, GC pauses |
 | Time-to-first-prototype | ❌ slowest | ✅ fastest | 🟡 medium |
@@ -70,8 +70,17 @@ So runtime evidence is **optional input**. Static analysis alone produces Capabl
 Configured states, reachability from entry points (which also yields Confirmed) and a full
 CBOM. Dropping a packet capture into the target adds runtime evidence: negotiated TLS and SSH
 algorithms, attributed to the listener that served them, upgrade assets to **Confirmed**. A
-capture needs no privileges on the scanning host; live eBPF hooks (`aya`) are the planned next
-step for hosts where capturing traffic is not possible.
+capture needs no privileges on the scanning host.
+
+Where traffic cannot be captured, `lattice trace` observes the library calls themselves.
+**Chosen: kernel uprobes through tracefs. Rejected: eBPF programs (`aya`, libbpf).** Both use
+the same kernel mechanism, a uprobe on a library function, and both need root. What LATTICE
+needs from each call is one argument (an algorithm name, a key size, a list string), and the
+uprobe tracer's fetch arguments read exactly that, with filters for `SSL_CTX_ctrl` commands.
+eBPF would add a BPF toolchain and linker to the build, CO-RE and verifier compatibility across
+kernels, and bytecode to audit, for no additional information. If per-call aggregation in the
+kernel ever becomes necessary for very busy hosts, eBPF is the upgrade path; the probe plan and
+the trace format stay the same.
 
 ---
 
@@ -187,7 +196,7 @@ every client that can use the cockpit supports 1.3, and 1.2 cannot negotiate the
 |----------|----------|--------|
 | Source languages | **Python, Java, Go, C, C++, JavaScript, TypeScript, Rust, C#** | The rule catalogue is data; each language adds a tree-sitter grammar and node tables. |
 | Knowledge and rules format | **TOML**, versioned, compiled in | Strict parsing, comments for provenance, no YAML ambiguities. |
-| "Confirmed" liveness | **Reachability, or negotiation in a packet capture**; eBPF planned | A capture needs no privileges on the scanning host and proves what was negotiated. |
+| "Confirmed" liveness | **Reachability, negotiation in a packet capture, or a traced library call** | A capture needs no privileges on the scanning host; a trace shows what a process actually asked for. |
 | Correlating traffic with configuration | **By TLS server name** against listener host names | Captures and configurations come from different machines; the name is the stable link. |
 | Container images | **Exported archives** (`docker save`, OCI), streamed | Air-gapped: nothing is pulled; nothing is extracted to disk. |
 | Graph persistence | **Per scan, exported as JSON** | Enough for the cockpit and history; an embedded store is planned only if queries need it. |

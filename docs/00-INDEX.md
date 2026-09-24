@@ -49,7 +49,7 @@ These are argued in full in [decisions.md](decisions.md).
 |----------|--------|-----------------|
 | Core language | **Rust** | Single static air-gapped binary; the best X.509/TLS/binary parsers are Rust-native; memory safety for a security tool |
 | Graph store | **In-process `petgraph`, exported per scan** | Keeps the few-artefacts, no-external-service, air-gapped promise; no Neo4j to deploy inside NTRO |
-| Runtime confirmation | **Optional, from packet captures** (eBPF planned) | Delivers the "Confirmed" liveness state without making the core depend on it |
+| Runtime confirmation | **Optional, from packet captures and `lattice trace` (kernel uprobes on OpenSSL)** | Delivers the "Confirmed" liveness state without making the core depend on it |
 | Demo anchor | **Generic engine, banking/UPI flagship scenario** | Sharp story tied to the RBI quantum-safe push, without narrowing the tool |
 
 ---

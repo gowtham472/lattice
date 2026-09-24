@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 212 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 221 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -29,7 +29,7 @@ flowchart TD
 | Crate | Responsibility | Tests |
 |---|---|---|
 | `lattice-core` | Domain model, algorithm knowledge base, name parsers, normalisation, policy | 46 |
-| `lattice-collectors` | Source (tree-sitter, 9 languages), binary (ELF/PE/Mach-O symbols, constant tables, OIDs), PKI (X.509, PKCS#1/#8, SEC1, OpenSSH), config and Terraform, container images (docker save, OCI, tarballs), packet captures (pcap, pcapng: TLS, SSH); walker, sandbox, incremental cache, key custody (PKCS#11, TPM, Vault, crypttab, cloud KMS/HSM) | 74 |
+| `lattice-collectors` | Source (tree-sitter, 9 languages), binary (ELF/PE/Mach-O symbols, constant tables, OIDs), PKI (X.509, PKCS#1/#8, SEC1, OpenSSH), config and Terraform, container images (docker save, OCI, tarballs), packet captures (pcap, pcapng: TLS, SSH); walker, sandbox, incremental cache, key custody (PKCS#11, TPM, Vault, crypttab, cloud KMS/HSM), runtime traces | 77 |
 | `lattice-classify` | Data classification from identifiers, parameters, functions, paths | 8 |
 | `lattice-graph` | Crypto graph, entry-point reachability, exposure, data inheritance | 5 |
 | `lattice-risk` | Assessor (QB, threat, HNDL/TNFL index, CAS, Mosca range, tiers) and advisor (recommendations, FIPS 203/204 size deltas, roadmap waves, effort estimates, the plan against the timeline, custody-aware advice); property tests of the scoring invariants | 20 |
@@ -37,8 +37,9 @@ flowchart TD
 | `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles; golden CBOM of the demo estate | 12 |
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards, users and roles, hash-chained audit log, TLS 1.3 with X25519MLKEM768 and mutual TLS | 13 |
 | `lattice-report` | Executive PDF: a deterministic PDF writer (standard fonts, exact metrics) and the report layout, rendered from the report JSON | 5 |
+| `lattice-tracer` | Runtime tracing: probe plan from ELF symbols, uprobe definitions, tracefs session with guaranteed cleanup, setup-window filtering, aggregation | 5 (+ tested as root) |
 | `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
-| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `report`, `serve`, `user`, `audit`, `sandbox-check`, `knowledge` | 10 end-to-end |
+| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `report`, `serve`, `user`, `audit`, `trace`, `sandbox-check`, `knowledge` | 11 end-to-end |
 | `cockpit` | React 19 + TypeScript: overview and Mosca timeline, inventory, explanation drawer, exposure graph, roadmap, compare, scan launcher | typecheck |
 
 ## Guarantees enforced by tests
@@ -82,6 +83,7 @@ flowchart TD
 | Server TLS 1.3 with X25519MLKEM768 first, mutual TLS | Delivered |
 | Key custody: keys in HSMs, TPMs and cloud key services | Delivered |
 | CI: tests, cockpit, fuzzing, OpenSSL 3.5.5 golden scan | Delivered |
+| Runtime tracing of OpenSSL calls on live hosts (`lattice trace`) | Delivered |
 
 ## Usage
 

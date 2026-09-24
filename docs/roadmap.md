@@ -64,6 +64,8 @@ Each phase is one commit in the history.
     from the configuration that references them, with migration advice for the device.
 18. **CI and the OpenSSL golden scan**: every push is formatted, linted, tested, fuzzed and
     compared against a reviewed scan of OpenSSL 3.5.5; parsers are fuzzed for longer nightly.
+19. **Runtime tracing**: `lattice trace` records which cryptography running processes ask
+    OpenSSL for, through kernel uprobes, ignoring OpenSSL's own setup enumeration.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -74,8 +76,10 @@ Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 
 In order of value to an operator:
 
-1. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
-   read-only.
+1. **Tracing beyond OpenSSL**: statically linked TLS stacks (Go `crypto/tls`, BoringSSL,
+   rustls) and the JVM's JCA providers, which OpenSSL uprobes do not see.
+2. **Windows and macOS builds**, with a platform sandbox for each.
+3. **Live scan progress** pushed to the cockpit instead of polled.
 
 ---
 

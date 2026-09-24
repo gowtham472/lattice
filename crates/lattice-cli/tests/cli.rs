@@ -777,3 +777,37 @@ fn large_cboms_validate_sign_and_verify() {
     );
     assert_eq!(code(&verified), 0, "{}", text(&verified.stderr));
 }
+
+#[test]
+fn trace_plans_without_privilege() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = lattice(&["trace", "--dry-run"], dir.path());
+    assert_eq!(code(&plan), 0, "{}", text(&plan.stderr));
+    assert!(
+        text(&plan.stdout).contains("probes in"),
+        "{}",
+        text(&plan.stdout)
+    );
+    #[cfg(target_os = "linux")]
+    if !lattice_libraries_present() {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    assert!(
+        text(&plan.stdout).contains("EVP_CIPHER_fetch")
+            && text(&plan.stdout).contains("setup entry"),
+        "{}",
+        text(&plan.stdout)
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn lattice_libraries_present() -> bool {
+    [
+        "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+        "/usr/lib/aarch64-linux-gnu/libcrypto.so.3",
+        "/usr/lib64/libcrypto.so.3",
+    ]
+    .iter()
+    .any(|p| Path::new(p).exists())
+}

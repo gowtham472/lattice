@@ -40,6 +40,10 @@ lattice verify demo.cbom.json --public-key keys/lattice-signing.pub
 # validate against the official CycloneDX 1.6 schema (offline)
 lattice validate demo.cbom.json
 
+# on a live Linux host (root): which cryptography do running processes actually use?
+sudo lattice trace --duration 300 -o estate/payments-api/prod-1.lattice-trace.json
+lattice trace --dry-run      # what would be probed, without privilege
+
 # serve the cockpit to named users with roles; every call lands in a hash-chained audit log
 lattice user add --name alice --role operator --users users.toml
 lattice serve --root estate=/srv/code --users users.toml --data-dir .lattice \

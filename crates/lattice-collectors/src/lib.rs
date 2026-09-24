@@ -21,6 +21,7 @@ pub mod fuzzing;
 pub mod pki;
 pub mod sandbox;
 pub mod source;
+pub mod trace;
 mod walk;
 
 use lattice_core::{CallFact, EntryBinding, FunctionFact, LibraryFact, Observation};
@@ -186,6 +187,7 @@ pub fn default_collectors() -> Result<Vec<Box<dyn Collector>>, CollectorError> {
         Box::new(binary::BinaryCollector::new()),
         Box::new(pki::PkiCollector::new()),
         Box::new(config::ConfigCollector::new()?),
+        Box::new(trace::TraceCollector::new()),
     ])
 }
 

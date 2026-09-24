@@ -76,6 +76,8 @@ enum Command {
     Serve(ServeArgs),
     /// Show what the sandbox enforces on this machine, by attempting forbidden operations.
     SandboxCheck(SandboxCheckArgs),
+    /// Record which cryptography running processes ask OpenSSL for (Linux, root).
+    Trace(TraceArgs),
     /// Manage the users who may call the server.
     #[command(subcommand)]
     User(UserCommand),
@@ -97,6 +99,25 @@ enum AuditCommand {
 struct AuditVerifyArgs {
     /// The log (<data-dir>/audit.jsonl).
     file: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct TraceArgs {
+    /// How long to record, in seconds.
+    #[arg(long, default_value_t = 60)]
+    duration: u64,
+
+    /// A library to probe (repeatable). Defaults to the system's libcrypto and libssl.
+    #[arg(long = "library")]
+    libraries: Vec<PathBuf>,
+
+    /// Trace destination; put it in the scanned estate, in the component it describes.
+    #[arg(short, long, default_value = "runtime.lattice-trace.json")]
+    output: PathBuf,
+
+    /// Show which functions would be probed, and where, without recording (needs no privilege).
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -515,6 +536,7 @@ fn main() -> ExitCode {
         Command::User(UserCommand::Add(args)) => user_add(args).map(|()| EXIT_OK),
         Command::Audit(AuditCommand::Verify(args)) => audit_verify(args, sandbox),
         Command::Report(args) => report(args, sandbox),
+        Command::Trace(args) => trace(args, sandbox),
         Command::Validate(args) => validate(args, sandbox),
         Command::Serve(args) => serve(args, sandbox).map(|()| EXIT_OK),
         Command::SandboxCheck(args) => sandbox_check(args, cli.sandbox),
@@ -1054,6 +1076,107 @@ fn verify(args: VerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
             Ok(EXIT_VERIFICATION)
         }
     }
+}
+
+fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    let libraries = if args.libraries.is_empty() {
+        lattice_tracer::default_libraries()
+    } else {
+        args.libraries.clone()
+    };
+    if args.dry_run {
+        let probes = lattice_tracer::plan(&libraries)?;
+        let mut by_kind: std::collections::BTreeMap<String, usize> = Default::default();
+        for probe in &probes {
+            let role = match probe.role {
+                lattice_tracer::Role::Call(kind) => format!("{kind:?}"),
+                lattice_tracer::Role::SetupEnter => "setup entry".into(),
+                lattice_tracer::Role::SetupExit => "setup return".into(),
+            };
+            *by_kind.entry(role.clone()).or_default() += 1;
+            if probe.role != lattice_tracer::Role::Call(lattice_tracer::CallKind::Getter) {
+                println!(
+                    "{:<32} {:<12} {}:0x{:x}",
+                    probe.function,
+                    role,
+                    probe.library.display(),
+                    probe.offset
+                );
+            }
+        }
+        println!(
+            "{} probes in {} libraries ({}); legacy getters not listed",
+            probes.len(),
+            libraries.len(),
+            by_kind
+                .iter()
+                .map(|(kind, count)| format!("{kind} {count}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        return Ok(EXIT_OK);
+    }
+
+    // confined: tracefs and the output are writable, the libraries and /proc readable; no
+    // network and no program execution
+    let tracefs = ["/sys/kernel/tracing", "/sys/kernel/debug/tracing"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|root| root.join("uprobe_events").exists());
+    let mut read: Vec<&Path> = libraries.iter().map(PathBuf::as_path).collect();
+    read.push(Path::new("/proc"));
+    let uprobe_events = tracefs.as_ref().map(|root| root.join("uprobe_events"));
+    let mut write: Vec<&Path> = vec![&args.output];
+    write.extend(uprobe_events.as_deref());
+    let confinement = confine(sandbox, &read, &write)?;
+
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                runtime.block_on(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                });
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    }
+    eprintln!(
+        "recording for up to {} s (Ctrl-C stops early; sandbox: {})",
+        args.duration,
+        confinement.summary()
+    );
+    let options = lattice_tracer::Options {
+        libraries,
+        duration: Duration::from_secs(args.duration),
+        max_distinct: 20_000,
+    };
+    let (recorded, dropped) = lattice_tracer::record(&options, &|| {
+        stop.load(std::sync::atomic::Ordering::Relaxed)
+    })?;
+    write_atomic(&args.output, &pretty(&recorded)?)?;
+    let executables: std::collections::BTreeSet<&str> = recorded
+        .events
+        .iter()
+        .map(|e| e.executable.as_str())
+        .collect();
+    println!(
+        "recorded {} distinct calls from {} executables in {} s{} -> {}",
+        recorded.events.len(),
+        executables.len(),
+        recorded.duration_seconds,
+        if dropped > 0 {
+            format!(" ({dropped} dropped or rejected)")
+        } else {
+            String::new()
+        },
+        args.output.display()
+    );
+    Ok(EXIT_OK)
 }
 
 fn report(args: ReportArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {

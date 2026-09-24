@@ -74,6 +74,12 @@ analyses (see [decisions.md §9](decisions.md)).
 - **Metadata only.** A private key is recorded as its type, size, format, whether it is
   encrypted, and a BLAKE3 fingerprint; the key bytes never reach a report. Password-protected
   keystores are recorded as present and never opened. *Enforced.*
+- **Runtime tracing is opt-in and narrow.** `lattice trace` needs root to define uprobes; it
+  records the called function, the executable and one argument (an algorithm name, a key size or
+  a TLS list), never data or keys. Events go to a private tracefs instance; every probe and the
+  instance are removed when recording ends, including on Ctrl-C (tested). The recorder runs under
+  the same Landlock and seccomp sandbox as a scan, with tracefs and the output as the only
+  writable paths. *Enforced.*
 - **No secrets from key references.** When configuration names a key held in hardware, only the
   token, object label, engine or handle is recorded; the query part of a PKCS#11 URI (where
   `pin-value` lives) and Vault seal PINs are never read into a finding. *Enforced (tested).*

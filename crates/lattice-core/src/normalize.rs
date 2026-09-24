@@ -313,9 +313,14 @@ fn asset_id(finding: &Finding, key: &str) -> String {
 
 fn resolve_liveness(occurrences: &[Occurrence]) -> (Liveness, String) {
     if let Some(runtime) = occurrences.iter().find(|o| o.surface == Surface::Runtime) {
+        let seen = if runtime.evidence.kind == EvidenceKind::Trace {
+            "called by a running process, traced at"
+        } else {
+            "observed in live traffic at"
+        };
         return (
             Liveness::Confirmed,
-            format!("observed in live traffic at {}", runtime.location.short()),
+            format!("{seen} {}", runtime.location.short()),
         );
     }
     if let Some(config) = occurrences.iter().find(|o| {
@@ -375,6 +380,7 @@ fn describe_kind(kind: EvidenceKind) -> &'static str {
         EvidenceKind::ByteSignature => "binary constant",
         EvidenceKind::Import => "import",
         EvidenceKind::Heuristic => "textual",
+        EvidenceKind::Trace => "runtime call",
     }
 }
 

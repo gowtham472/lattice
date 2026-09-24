@@ -142,6 +142,8 @@ pub enum EvidenceKind {
     Import,
     /// A textual match that could not be confirmed structurally.
     Heuristic,
+    /// A call into a cryptographic library observed on a running system (`lattice trace`).
+    Trace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
