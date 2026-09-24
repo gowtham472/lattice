@@ -30,7 +30,7 @@ NAMED = {
                "Dockerfile", "app.yaml", "app.json", "app.toml", "app.properties", "main.tf"],
     "source": ["a.py", "A.java", "a.go", "a.c", "a.cpp", "a.js", "a.ts", "a.tsx", "a.rs", "a.cs"],
 }
-TARGETS = ["pki", "keys", "config", "source", "binary", "capture", "container", "names"]
+TARGETS = ["pki", "keys", "config", "source", "binary", "capture", "container", "names", "gopclntab"]
 
 
 def files(*patterns):
@@ -79,6 +79,16 @@ def seeds(target):
     elif target == "container":
         for path in files("*.tar"):
             yield path.read_bytes()
+    elif target == "gopclntab":
+        # the function table of a real Go binary, when one is at hand
+        for candidate in os.environ.get("LATTICE_TEST_GO_BINARIES", "").split(":"):
+            if candidate and os.path.exists(candidate):
+                data = pathlib.Path(candidate).read_bytes()
+                start = data.find(bytes([0xF1, 0xFF, 0xFF, 0xFF, 0x00, 0x00]))
+                if start >= 0:
+                    yield data[start:start + 262144]
+                break
+        yield bytes([0xF1, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x01, 0x08]) + bytes(64)
     elif target == "names":
         yield from (name.encode() for name in [
             "RSA-2048", "AES-256-GCM", "secp256r1", "X25519MLKEM768", "ML-KEM-768",

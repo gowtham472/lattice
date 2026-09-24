@@ -20,7 +20,8 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Container images from `docker save` and OCI archives, with whiteouts and dpkg/apk library versions | Delivered | (i) |
 | Runtime evidence from packet captures: TLS and SSH negotiated algorithms, TLS 1.2 certificates | Delivered | (i), (ii) |
 | Runtime evidence from live hosts: `lattice trace` places kernel uprobes on the OpenSSL calls that select cryptography (algorithm fetches, legacy getters, RSA key sizes, TLS group and cipher lists), ignores what OpenSSL enumerates during its own setup, and writes a trace that `scan` turns into Confirmed assets | Delivered | (i), (ii) |
-| Runtime tracing of statically linked TLS stacks (Go, BoringSSL, rustls) and the JVM | Planned | (i), (ii) |
+| Runtime tracing of Go programs, stripped or not: the `crypto/...` entry points, AES and RSA key sizes, and the group each TLS handshake negotiated (X25519MLKEM768 included); running Go programs are found automatically | Delivered | (i), (ii) |
+| Runtime tracing of BoringSSL, rustls and the JVM | Planned | (i), (ii) |
 | Pulling images from registries | Not planned (air-gapped); scan exported archives | (i) |
 | Keys held in hardware or key services: PKCS#11 URIs, OpenSSL engine and TPM handle references, Java PKCS#11 keystores, Vault seals, TPM2-sealed LUKS volumes, TPM-wrapped key files, cloud KMS and HSM keys (with their signing or decryption use); CycloneDX `securedBy` | Delivered | (i) |
 | Live enumeration of PKCS#11 tokens and TPMs | Not planned: it means loading vendor code into the scanner; custody is found from the configuration that uses the keys | (i) |

@@ -409,6 +409,18 @@ pub fn recommend(
                         basis: "public key + signature".into(),
                     }),
                 },
+                Primitive::Hash if !assessment.broken_now && assessment.quantum_breakability > 0.2 => Recommendation {
+                    action: "replace".into(),
+                    target: "SHA-384 (or SHA3-384)".into(),
+                    rationale: format!("{}'s output leaves too little margin under quantum search; SHA-384 keeps 192-bit preimage resistance.", spec.name),
+                    size_delta: None,
+                },
+                Primitive::Mac if spec.id == "hmac" && params.digest.is_none() => Recommendation {
+                    action: "review".into(),
+                    target: "the HMAC digest: SHA-256 or stronger".into(),
+                    rationale: "HMAC itself stands up to quantum attack with a 256-bit key; its strength rests on the digest, which is not visible here.".into(),
+                    size_delta: None,
+                },
                 Primitive::Xof if !assessment.broken_now && assessment.quantum_breakability > 0.2 => Recommendation {
                     action: "replace".into(),
                     target: "SHAKE256".into(),

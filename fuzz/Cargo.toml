@@ -12,6 +12,7 @@ libfuzzer-sys = "0.4"
 tempfile = "3"
 lattice-core = { path = "../crates/lattice-core" }
 lattice-collectors = { path = "../crates/lattice-collectors", features = ["fuzzing"] }
+lattice-tracer = { path = "../crates/lattice-tracer" }
 
 [workspace]
 
@@ -70,6 +71,13 @@ bench = false
 [[bin]]
 name = "names"
 path = "fuzz_targets/names.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gopclntab"
+path = "fuzz_targets/gopclntab.rs"
 test = false
 doc = false
 bench = false

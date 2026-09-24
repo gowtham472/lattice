@@ -73,8 +73,14 @@ fn probe(
         offset: 0x1a2b3c,
         function: function.into(),
         role: Role::Call(kind),
-        argument,
+        fetch: match (kind, argument) {
+            (_, None) => Fetch::Nothing,
+            (CallKind::RsaBits, Some(index)) => Fetch::Int32(index),
+            (_, Some(index)) => Fetch::String(index),
+        },
+        abi: Abi::C,
         only_when,
+        executable: false,
     }
 }
 
@@ -231,4 +237,146 @@ fn calls_during_openssl_setup_are_not_use() {
         trace.events[0].count, 2,
         "thread 11's call and thread 10's call after setup"
     );
+}
+
+/// Unstripped and stripped builds of `testdata/gocrypto`, named by LATTICE_TEST_GO_BINARIES
+/// (colon-separated); CI builds them, local runs skip without them.
+fn go_binaries() -> Option<Vec<PathBuf>> {
+    let list = std::env::var("LATTICE_TEST_GO_BINARIES").ok()?;
+    Some(list.split(':').map(PathBuf::from).collect())
+}
+
+#[test]
+fn go_functions_are_found_in_stripped_binaries() {
+    let Some(binaries) = go_binaries() else {
+        eprintln!("LATTICE_TEST_GO_BINARIES not set; skipping");
+        return;
+    };
+    let mut plans = Vec::new();
+    for binary in &binaries {
+        let probes = plan(std::slice::from_ref(binary)).unwrap();
+        assert!(
+            probes.iter().all(|p| p.abi == Abi::Go && p.executable),
+            "{binary:?}"
+        );
+        let by_name: BTreeMap<String, (u64, Fetch)> = probes
+            .iter()
+            .map(|p| (p.function.clone(), (p.offset, p.fetch)))
+            .collect();
+        for (function, fetch) in [
+            ("crypto/aes.NewCipher", Fetch::KeyBits("AES", 1)),
+            ("crypto/rsa.GenerateKey", Fetch::Int64(2)),
+            (
+                "crypto/tls.(*hybridKeyExchange).serverSharedSecret",
+                Fetch::CurveId,
+            ),
+            ("crypto/mlkem.GenerateKey768", Fetch::Fixed("ML-KEM-768")),
+            ("crypto/md5.Sum", Fetch::Fixed("MD5")),
+        ] {
+            assert_eq!(
+                by_name.get(function).map(|p| p.1),
+                Some(fetch),
+                "{function} in {binary:?}"
+            );
+        }
+        plans.push(by_name);
+    }
+    assert!(
+        plans.windows(2).all(|w| w[0] == w[1]),
+        "stripping removes the symbol table, not what the function table says"
+    );
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn go_probes_use_go_registers_and_interpret_values() {
+    let go_probe = |function: &str, fetch| Probe {
+        library: PathBuf::from("/srv/app"),
+        offset: 0x1000,
+        function: function.into(),
+        role: Role::Call(CallKind::Algorithm),
+        fetch,
+        abi: Abi::Go,
+        only_when: None,
+        executable: true,
+    };
+    let aes = go_probe("crypto/aes.NewCipher", Fetch::KeyBits("AES", 1));
+    assert!(
+        definition("g", "p0", &aes)
+            .unwrap()
+            .ends_with(" value=%bx:s64")
+    );
+    let rsa = go_probe("crypto/rsa.GenerateKey", Fetch::Int64(2));
+    assert!(
+        definition("g", "p1", &rsa)
+            .unwrap()
+            .ends_with(" value=%cx:s64")
+    );
+    let hybrid = go_probe(
+        "crypto/tls.(*hybridKeyExchange).serverSharedSecret",
+        Fetch::CurveId,
+    );
+    assert!(
+        definition("g", "p2", &hybrid)
+            .unwrap()
+            .ends_with(" value=+0(%ax):u16")
+    );
+    let md5 = go_probe("crypto/md5.Sum", Fetch::Fixed("MD5"));
+    assert!(definition("g", "p3", &md5).unwrap().ends_with(":0x1000"));
+
+    assert_eq!(
+        interpret(Fetch::KeyBits("AES", 1), Some("32")).as_deref(),
+        Some("AES-256")
+    );
+    assert_eq!(interpret(Fetch::KeyBits("AES", 1), Some("0")), None);
+    assert_eq!(
+        interpret(Fetch::CurveId, Some("4588")).as_deref(),
+        Some("X25519MLKEM768")
+    );
+    assert_eq!(
+        interpret(Fetch::CurveId, Some("29")).as_deref(),
+        Some("x25519")
+    );
+    assert_eq!(
+        interpret(Fetch::CurveId, Some("65000")).as_deref(),
+        Some("0xfde8")
+    );
+    assert_eq!(interpret(Fetch::Fixed("MD5"), None).as_deref(), Some("MD5"));
+
+    // a Go program's calls are attributed to the program, even after it has exited
+    let mut aggregator = Aggregator::new(vec![md5], 10);
+    aggregator.add(
+        &parse::parse("<...>-77 [000] ..... 1.0: p0: (0x1)").unwrap(),
+        |_| None,
+    );
+    let trace = aggregator.finish("2026-09-24T00:00:00Z".into(), 1);
+    assert_eq!(trace.events[0].executable, "/srv/app");
+    assert_eq!(trace.events[0].value.as_deref(), Some("MD5"));
+}
+
+#[test]
+fn garbage_is_not_a_go_function_table() {
+    assert!(golang::pclntab_functions(b"not a pclntab", 0, |_| true).is_err());
+    assert!(golang::pclntab_functions(&[0xf1, 0xff, 0xff, 0xff, 0, 0, 1, 8], 0, |_| true).is_err());
+    let mut header = vec![0xf1, 0xff, 0xff, 0xff, 0, 0, 1, 8];
+    header.extend_from_slice(&u64::MAX.to_le_bytes());
+    header.extend(std::iter::repeat_n(0u8, 56));
+    assert!(
+        golang::pclntab_functions(&header, 0, |_| true).is_err(),
+        "implausible counts are refused"
+    );
+}
+
+#[test]
+fn a_hostile_function_table_cannot_overflow_addresses() {
+    // found by the gopclntab fuzz target: a textStart near u64::MAX
+    let mut table = vec![0xf1, 0xff, 0xff, 0xff, 0x00, 0x00, 0x01, 0x08];
+    table.extend_from_slice(&[0x00, 0x08, 0, 0, 0, 0, 0, 0]); // nfunc
+    table.extend_from_slice(&[0; 8]); // nfiles
+    table.extend_from_slice(&[0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0xff]); // textStart
+    table.extend_from_slice(&[0xff; 18]);
+    table.extend_from_slice(&[0; 26]);
+    table.extend_from_slice(&[0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    // never panics; whatever it returns stays in range
+    let _ = golang::pclntab_functions(&table, 0x40_1000, |_| true);
 }

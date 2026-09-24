@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 221 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 225 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -37,7 +37,7 @@ flowchart TD
 | `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles; golden CBOM of the demo estate | 12 |
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards, users and roles, hash-chained audit log, TLS 1.3 with X25519MLKEM768 and mutual TLS | 13 |
 | `lattice-report` | Executive PDF: a deterministic PDF writer (standard fonts, exact metrics) and the report layout, rendered from the report JSON | 5 |
-| `lattice-tracer` | Runtime tracing: probe plan from ELF symbols, uprobe definitions, tracefs session with guaranteed cleanup, setup-window filtering, aggregation | 5 (+ tested as root) |
+| `lattice-tracer` | Runtime tracing: probe plan from ELF symbols and Go function tables, C and Go register ABIs, uprobe definitions, tracefs session with guaranteed cleanup, setup-window filtering, aggregation | 10 (+ tested as root) |
 | `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
 | `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `report`, `serve`, `user`, `audit`, `trace`, `sandbox-check`, `knowledge` | 11 end-to-end |
 | `cockpit` | React 19 + TypeScript: overview and Mosca timeline, inventory, explanation drawer, exposure graph, roadmap, compare, scan launcher | typecheck |
@@ -52,7 +52,7 @@ flowchart TD
 - **Explainable.** Every index term, agility factor, liveness level, evidence grade, data class and Mosca verdict carries its reason.
 - **Tamper evident.** The detached ML-DSA-65 signature covers the exact CBOM bytes plus a per-component BLAKE3 chain. Verification names the altered, removed or reordered component, rejects untrusted keys, and rejects re-hashed forgeries.
 - **Server hardening.** Loopback by default; a non-loopback bind is refused without credentials. Named users with viewer, operator and admin roles (401 for unknown tokens, 403 for too weak a role); every API call is appended to a hash-chained audit log the server verifies before starting. TLS 1.3 only, X25519MLKEM768 first, optional mutual TLS; non-loopback addresses are never served over plain HTTP by default. Host-header checks defeat DNS rebinding. Scans are confined to operator-declared roots (canonicalised, symlink escapes refused). Strict CSP with no inline script, `no-store` on the API, 16 KiB request bodies, unknown fields rejected, bounded scan queue, one scan at a time.
-- **Fuzzed.** Eight `cargo-fuzz` targets cover every parser of hostile input (`fuzz/`, `scripts/fuzz.py`).
+- **Fuzzed.** Nine `cargo-fuzz` targets cover every parser of hostile input (`fuzz/`, `scripts/fuzz.py`).
 - **Stable output.** The demo estate's CBOM is compared byte for byte with a reviewed golden file, and a scan of OpenSSL 3.5.5 (1,033 assets) with a reviewed summary.
 - **CI contract.** Exit code 0 means clean, 1 a regression at or above `--fail-on`, 2 a usage or scan error, 3 a verification failure. A baseline can be required to be signed.
 
@@ -84,6 +84,7 @@ flowchart TD
 | Key custody: keys in HSMs, TPMs and cloud key services | Delivered |
 | CI: tests, cockpit, fuzzing, OpenSSL 3.5.5 golden scan | Delivered |
 | Runtime tracing of OpenSSL calls on live hosts (`lattice trace`) | Delivered |
+| Runtime tracing of Go programs, stripped or not | Delivered |
 
 ## Usage
 

@@ -417,8 +417,22 @@ version = "0.0.0"
 dependencies = [
  "lattice-collectors",
  "lattice-core",
+ "lattice-tracer",
  "libfuzzer-sys",
  "tempfile",
+]
+
+[[package]]
+name = "lattice-tracer"
+version = "0.1.0"
+dependencies = [
+ "goblin",
+ "lattice-collectors",
+ "lattice-core",
+ "libc",
+ "regex",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]

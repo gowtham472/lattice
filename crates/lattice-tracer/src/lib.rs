@@ -28,6 +28,7 @@ use lattice_collectors::trace::{FORMAT, Trace, TraceEvent};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+pub mod golang;
 pub mod parse;
 #[cfg(target_os = "linux")]
 mod tracefs;
@@ -36,13 +37,42 @@ mod tracefs;
 /// `SSL_CTX_ctrl(ctx, 92, 0, list)`.
 const SSL_CTRL_SET_GROUPS_LIST: i64 = 92;
 
-/// A function to probe and the argument that says what it selects.
+/// What a probe reads when it fires, and how the value is recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fetch {
+    /// Nothing: the call itself is the evidence.
+    Nothing,
+    /// A NUL-terminated string argument.
+    String(usize),
+    /// A C `int` argument.
+    Int32(usize),
+    /// A Go `int` argument.
+    Int64(usize),
+    /// A fixed value: the function names the algorithm (`crypto/md5.Sum` is MD5).
+    Fixed(&'static str),
+    /// The length of a Go `[]byte` key (the second word of the slice), recorded as
+    /// `<prefix>-<bits>`: `crypto/aes.NewCipher` with a 32-byte key is AES-256.
+    KeyBits(&'static str, usize),
+    /// A TLS `CurveID` in the first 16 bits of the receiver (Go `crypto/tls` key exchanges),
+    /// recorded as the group's name.
+    CurveId,
+}
+
+/// The calling convention of the probed code, which decides the argument registers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Abi {
+    /// C (System V AMD64, AAPCS64).
+    C,
+    /// Go's register-based ABIInternal (Go 1.17+).
+    Go,
+}
+
+/// A function to probe and what it says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Spec {
     pub function: &'static str,
     pub kind: CallKind,
-    /// Zero-based index of the argument to record; `None` when the function is the answer.
-    pub argument: Option<usize>,
+    pub fetch: Fetch,
     /// Record only calls whose argument at `.0` equals `.1` (e.g. an `SSL_CTX_ctrl` command).
     pub only_when: Option<(usize, i64)>,
 }
@@ -51,10 +81,113 @@ const fn spec(function: &'static str, kind: CallKind, argument: usize) -> Spec {
     Spec {
         function,
         kind,
-        argument: Some(argument),
+        fetch: if matches!(kind, CallKind::RsaBits) {
+            Fetch::Int32(argument)
+        } else {
+            Fetch::String(argument)
+        },
         only_when: None,
     }
 }
+
+const fn go(function: &'static str, kind: CallKind, fetch: Fetch) -> Spec {
+    Spec {
+        function,
+        kind,
+        fetch,
+        only_when: None,
+    }
+}
+
+const fn named(function: &'static str, algorithm: &'static str) -> Spec {
+    go(function, CallKind::Algorithm, Fetch::Fixed(algorithm))
+}
+
+/// Go's standard library cryptography: the entry points that name what they do, the key size
+/// of AES and RSA, and the group each TLS key exchange negotiated.
+pub const GO_SPECS: &[Spec] = &[
+    named("crypto/md5.New", "MD5"),
+    named("crypto/md5.Sum", "MD5"),
+    named("crypto/sha1.New", "SHA-1"),
+    named("crypto/sha1.Sum", "SHA-1"),
+    named("crypto/sha256.New", "SHA-256"),
+    named("crypto/sha256.Sum256", "SHA-256"),
+    named("crypto/sha256.New224", "SHA-224"),
+    named("crypto/sha256.Sum224", "SHA-224"),
+    named("crypto/sha512.New", "SHA-512"),
+    named("crypto/sha512.Sum512", "SHA-512"),
+    named("crypto/sha512.New384", "SHA-384"),
+    named("crypto/sha512.Sum384", "SHA-384"),
+    go(
+        "crypto/aes.NewCipher",
+        CallKind::Algorithm,
+        Fetch::KeyBits("AES", 1),
+    ),
+    named("crypto/des.NewCipher", "DES"),
+    named("crypto/des.NewTripleDESCipher", "3DES"),
+    named("crypto/rc4.NewCipher", "RC4"),
+    named("crypto/hmac.New", "HMAC"),
+    named(
+        "golang.org/x/crypto/chacha20poly1305.New",
+        "ChaCha20-Poly1305",
+    ),
+    // GenerateKey(random io.Reader, bits int): the interface takes two registers
+    go("crypto/rsa.GenerateKey", CallKind::RsaBits, Fetch::Int64(2)),
+    named("crypto/rsa.SignPKCS1v15", "RSA"),
+    named("crypto/rsa.SignPSS", "RSA"),
+    named("crypto/rsa.EncryptPKCS1v15", "RSA"),
+    named("crypto/rsa.EncryptOAEP", "RSA"),
+    named("crypto/rsa.DecryptPKCS1v15", "RSA"),
+    named("crypto/rsa.DecryptOAEP", "RSA"),
+    named("crypto/ecdsa.GenerateKey", "ECDSA"),
+    named("crypto/ecdsa.SignASN1", "ECDSA"),
+    named("crypto/ed25519.GenerateKey", "Ed25519"),
+    named("crypto/ed25519.Sign", "Ed25519"),
+    named("crypto/mlkem.GenerateKey768", "ML-KEM-768"),
+    named("crypto/mlkem.GenerateKey1024", "ML-KEM-1024"),
+    named("crypto/ecdh.(*x25519Curve).GenerateKey", "X25519"),
+    named("crypto/ecdh.(*nistCurve).GenerateKey", "ECDH"),
+    // the key exchange TLS actually negotiated, with its group
+    go(
+        "crypto/tls.(*ecdhKeyExchange).serverSharedSecret",
+        CallKind::Groups,
+        Fetch::CurveId,
+    ),
+    go(
+        "crypto/tls.(*ecdhKeyExchange).clientSharedSecret",
+        CallKind::Groups,
+        Fetch::CurveId,
+    ),
+    go(
+        "crypto/tls.(*hybridKeyExchange).serverSharedSecret",
+        CallKind::Groups,
+        Fetch::CurveId,
+    ),
+    go(
+        "crypto/tls.(*hybridKeyExchange).clientSharedSecret",
+        CallKind::Groups,
+        Fetch::CurveId,
+    ),
+    go(
+        "crypto/tls.(*mlkem1024KeyExchange).serverSharedSecret",
+        CallKind::Groups,
+        Fetch::Fixed("MLKEM1024"),
+    ),
+    go(
+        "crypto/tls.(*mlkem1024KeyExchange).clientSharedSecret",
+        CallKind::Groups,
+        Fetch::Fixed("MLKEM1024"),
+    ),
+    // TLS 1.2 RSA key transport: no forward secrecy
+    named(
+        "crypto/tls.(*rsaKeyAgreement).processClientKeyExchange",
+        "RSA",
+    ),
+    named(
+        "crypto/tls.(*rsaKeyAgreement).generateClientKeyExchange",
+        "RSA",
+    ),
+];
 
 /// The OpenSSL 3 calls that select cryptography by name or size.
 pub const SPECS: &[Spec] = &[
@@ -79,13 +212,13 @@ pub const SPECS: &[Spec] = &[
     Spec {
         function: "SSL_CTX_ctrl",
         kind: CallKind::Groups,
-        argument: Some(3),
+        fetch: Fetch::String(3),
         only_when: Some((1, SSL_CTRL_SET_GROUPS_LIST)),
     },
     Spec {
         function: "SSL_ctrl",
         kind: CallKind::Groups,
-        argument: Some(3),
+        fetch: Fetch::String(3),
         only_when: Some((1, SSL_CTRL_SET_GROUPS_LIST)),
     },
 ];
@@ -107,13 +240,18 @@ const SETUP: &[&str] = &["OPENSSL_init_crypto", "SSL_CTX_new_ex"];
 /// One uprobe to place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Probe {
+    /// The library or executable the function is in.
     pub library: PathBuf,
     /// File offset of the function's entry, as uprobes take it.
     pub offset: u64,
     pub function: String,
     pub role: Role,
-    pub argument: Option<usize>,
+    pub fetch: Fetch,
+    pub abi: Abi,
     pub only_when: Option<(usize, i64)>,
+    /// The probed file is the program itself (a Go binary, a static build), so every call
+    /// through this probe is that program's, whatever /proc says.
+    pub executable: bool,
 }
 
 impl Probe {
@@ -130,7 +268,9 @@ impl Probe {
 pub enum TraceError {
     #[error("{0}: {1}")]
     Library(String, String),
-    #[error("no OpenSSL library found; name one with --library")]
+    #[error(
+        "nothing to probe: no OpenSSL library and no Go program found; name one with --library or --binary"
+    )]
     NoLibrary,
     #[error("tracefs: {0}")]
     Tracefs(String),
@@ -183,13 +323,13 @@ fn getter(name: &str) -> bool {
     })
 }
 
-/// Computes the probes for `libraries`: every known function they export, at its file offset.
-/// Needs no privilege.
-pub fn plan(libraries: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
+/// Computes the probes for `targets` (shared libraries or executables): OpenSSL's functions from
+/// the dynamic and static symbol tables, Go's from its function table. Needs no privilege.
+pub fn plan(targets: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
     let mut probes = Vec::new();
-    for library in libraries {
-        let error = |reason: String| TraceError::Library(library.display().to_string(), reason);
-        let bytes = std::fs::read(library).map_err(|e| error(e.to_string()))?;
+    for target in targets {
+        let error = |reason: String| TraceError::Library(target.display().to_string(), reason);
+        let bytes = std::fs::read(target).map_err(|e| error(e.to_string()))?;
         let elf = goblin::elf::Elf::parse(&bytes).map_err(|e| error(e.to_string()))?;
         let loads: Vec<_> = elf
             .program_headers
@@ -202,14 +342,71 @@ pub fn plan(libraries: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
                 .find(|h| h.p_vaddr <= address && address < h.p_vaddr + h.p_memsz)
                 .map(|h| address - h.p_vaddr + h.p_offset)
         };
+        // a program has an interpreter or is not position-independent; a library has neither
+        let executable = elf.header.e_type == goblin::elf::header::ET_EXEC
+            || elf.interpreter.is_some()
+            || golang::is_go(&elf);
         let mut seen = std::collections::BTreeSet::new();
-        for symbol in elf.dynsyms.iter() {
+        let mut add = |name: &str, address: u64, spec: Spec, role: Role, abi: Abi| {
+            let Some(offset) = file_offset(address) else {
+                return;
+            };
+            if !seen.insert((name.to_owned(), role == Role::SetupExit)) {
+                return;
+            }
+            probes.push(Probe {
+                library: target.clone(),
+                offset,
+                function: name.to_owned(),
+                role,
+                fetch: spec.fetch,
+                abi,
+                only_when: spec.only_when,
+                executable,
+            });
+        };
+
+        if golang::is_go(&elf) {
+            let wanted = |name: &str| GO_SPECS.iter().any(|s| s.function == name);
+            for function in golang::functions(&bytes, &elf, wanted).map_err(error)? {
+                if let Some(spec) = GO_SPECS.iter().find(|s| s.function == function.name) {
+                    add(
+                        &function.name,
+                        function.address,
+                        *spec,
+                        Role::Call(spec.kind),
+                        Abi::Go,
+                    );
+                }
+            }
+            continue;
+        }
+
+        // C: exported functions, then the static symbol table of an unstripped static build
+        let symbols = elf
+            .dynsyms
+            .iter()
+            .map(|s| (s, &elf.dynstrtab))
+            .chain(elf.syms.iter().map(|s| (s, &elf.strtab)));
+        for (symbol, strings) in symbols {
             if symbol.st_type() != goblin::elf::sym::STT_FUNC || symbol.st_value == 0 {
                 continue;
             }
-            let Some(name) = elf.dynstrtab.get_at(symbol.st_name) else {
+            let Some(name) = strings.get_at(symbol.st_name) else {
                 continue;
             };
+            if SETUP.contains(&name) {
+                let marker = Spec {
+                    function: "",
+                    kind: CallKind::Getter,
+                    fetch: Fetch::Nothing,
+                    only_when: None,
+                };
+                for role in [Role::SetupEnter, Role::SetupExit] {
+                    add(name, symbol.st_value, marker, role, Abi::C);
+                }
+                continue;
+            }
             let spec = SPECS
                 .iter()
                 .find(|s| s.function == name)
@@ -218,47 +415,12 @@ pub fn plan(libraries: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
                     getter(name).then_some(Spec {
                         function: "",
                         kind: CallKind::Getter,
-                        argument: None,
+                        fetch: Fetch::Nothing,
                         only_when: None,
                     })
                 });
-            let (Some(spec), Some(offset)) = (spec, file_offset(symbol.st_value)) else {
-                continue;
-            };
-            if !seen.insert(name.to_owned()) {
-                continue;
-            }
-            probes.push(Probe {
-                library: library.clone(),
-                offset,
-                function: name.to_owned(),
-                role: Role::Call(spec.kind),
-                argument: spec.argument,
-                only_when: spec.only_when,
-            });
-        }
-        for symbol in elf.dynsyms.iter() {
-            let Some(name) = elf.dynstrtab.get_at(symbol.st_name) else {
-                continue;
-            };
-            if symbol.st_type() != goblin::elf::sym::STT_FUNC
-                || symbol.st_value == 0
-                || !SETUP.contains(&name)
-            {
-                continue;
-            }
-            let Some(offset) = file_offset(symbol.st_value) else {
-                continue;
-            };
-            for role in [Role::SetupEnter, Role::SetupExit] {
-                probes.push(Probe {
-                    library: library.clone(),
-                    offset,
-                    function: name.to_owned(),
-                    role,
-                    argument: None,
-                    only_when: None,
-                });
+            if let Some(spec) = spec {
+                add(name, symbol.st_value, spec, Role::Call(spec.kind), Abi::C);
             }
         }
     }
@@ -272,40 +434,127 @@ pub fn plan(libraries: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
     Ok(probes)
 }
 
-/// The uprobe_events line for one probe (x86-64 and AArch64 argument registers).
-pub fn definition(group: &str, event: &str, probe: &Probe) -> Result<String, TraceError> {
-    #[cfg(target_arch = "x86_64")]
-    const REGISTERS: [&str; 6] = ["%di", "%si", "%dx", "%cx", "%r8", "%r9"];
-    #[cfg(target_arch = "aarch64")]
-    const REGISTERS: [&str; 6] = ["%x0", "%x1", "%x2", "%x3", "%x4", "%x5"];
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    return Err(TraceError::Unsupported);
+/// Executables of running processes, from `/proc/*/exe`. Only the links are read: parsing what
+/// they point to happens later, inside the sandbox (see [`plan_discovered`]).
+pub fn running_executables() -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut executables = std::collections::BTreeSet::new();
+    for entry in entries.flatten() {
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+            && let Ok(path) = std::fs::read_link(entry.path().join("exe"))
+            && path.is_absolute()
+            && !path.to_string_lossy().ends_with(" (deleted)")
+        {
+            executables.insert(path);
+        }
+    }
+    executables.into_iter().collect()
+}
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-    {
-        let mut line = format!(
-            "{}:{group}/{event} {}:0x{:x}",
-            if probe.role == Role::SetupExit {
-                "r"
-            } else {
-                "p"
-            },
-            probe.library.display(),
-            probe.offset
-        );
-        if let Some((index, _)) = probe.only_when {
-            line.push_str(&format!(" cmd={}:s64", REGISTERS[index]));
-        }
-        match (probe.kind(), probe.argument) {
-            (Some(CallKind::RsaBits), Some(index)) => {
-                line.push_str(&format!(" value={}:s32", REGISTERS[index]));
+/// Probes for discovered executables: the Go programs among them. Any file that cannot be read
+/// or parsed is skipped, since discovery is best effort; a malformed binary costs its own probes,
+/// never the recording.
+pub fn plan_discovered(candidates: &[PathBuf]) -> Vec<Probe> {
+    let mut probes = Vec::new();
+    for path in candidates {
+        let go = match std::fs::read(path) {
+            Ok(bytes) => goblin::elf::Elf::parse(&bytes).is_ok_and(|elf| golang::is_go(&elf)),
+            Err(error) => {
+                tracing::debug!(path = %path.display(), %error, "discovered executable unreadable");
+                continue;
             }
-            (_, Some(index)) => {
-                line.push_str(&format!(" value=+0({}):string", REGISTERS[index]));
-            }
-            (_, None) => {}
+        };
+        if !go {
+            continue;
         }
-        Ok(line)
+        match plan(std::slice::from_ref(path)) {
+            Ok(found) => {
+                tracing::debug!(path = %path.display(), probes = found.len(), "Go program discovered");
+                probes.extend(found);
+            }
+            Err(error) => tracing::debug!(path = %path.display(), %error, "Go program not planned"),
+        }
+    }
+    probes
+}
+
+/// The register holding argument `index` (integer class) for `abi`.
+fn register(abi: Abi, index: usize) -> Result<&'static str, TraceError> {
+    #[cfg(target_arch = "x86_64")]
+    let registers: &[&str] = match abi {
+        Abi::C => &["%di", "%si", "%dx", "%cx", "%r8", "%r9"],
+        Abi::Go => &[
+            "%ax", "%bx", "%cx", "%di", "%si", "%r8", "%r9", "%r10", "%r11",
+        ],
+    };
+    #[cfg(target_arch = "aarch64")]
+    let registers: &[&str] = {
+        let _ = abi;
+        &["%x0", "%x1", "%x2", "%x3", "%x4", "%x5", "%x6", "%x7"]
+    };
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    let registers: &[&str] = {
+        let _ = abi;
+        return Err(TraceError::Unsupported);
+    };
+    registers
+        .get(index)
+        .copied()
+        .ok_or_else(|| TraceError::Tracefs(format!("no register for argument {index}")))
+}
+
+/// The uprobe_events line for one probe.
+pub fn definition(group: &str, event: &str, probe: &Probe) -> Result<String, TraceError> {
+    let mut line = format!(
+        "{}:{group}/{event} {}:0x{:x}",
+        if probe.role == Role::SetupExit {
+            "r"
+        } else {
+            "p"
+        },
+        probe.library.display(),
+        probe.offset
+    );
+    if let Some((index, _)) = probe.only_when {
+        line.push_str(&format!(" cmd={}:s64", register(probe.abi, index)?));
+    }
+    let fetch = match probe.fetch {
+        Fetch::String(index) => format!(" value=+0({}):string", register(probe.abi, index)?),
+        Fetch::Int32(index) => format!(" value={}:s32", register(probe.abi, index)?),
+        Fetch::Int64(index) | Fetch::KeyBits(_, index) => {
+            format!(" value={}:s64", register(probe.abi, index)?)
+        }
+        Fetch::CurveId => format!(" value=+0({}):u16", register(probe.abi, 0)?),
+        Fetch::Nothing | Fetch::Fixed(_) => String::new(),
+    };
+    line.push_str(&fetch);
+    Ok(line)
+}
+
+/// What a fired probe's value means, once read.
+fn interpret(fetch: Fetch, raw: Option<&str>) -> Option<String> {
+    match fetch {
+        Fetch::Fixed(value) => Some(value.to_owned()),
+        Fetch::KeyBits(prefix, _) => {
+            let bytes: i64 = raw?.parse().ok()?;
+            (1..=1024)
+                .contains(&bytes)
+                .then(|| format!("{prefix}-{}", bytes * 8))
+        }
+        Fetch::CurveId => {
+            let id: u64 = raw?.parse().ok()?;
+            Some(golang::curve_name(id).map_or_else(|| format!("0x{id:04x}"), str::to_owned))
+        }
+        Fetch::Nothing => None,
+        Fetch::String(_) | Fetch::Int32(_) | Fetch::Int64(_) => {
+            raw.map(|v| v.chars().take(256).collect())
+        }
     }
 }
 
@@ -362,15 +611,19 @@ impl Aggregator {
             }
             Role::Call(_) => {}
         }
-        let value = line
-            .fields
-            .get("value")
-            .map(|v| v.chars().take(256).collect::<String>());
-        let executable = self
-            .executables
-            .entry(line.pid)
-            .or_insert_with(|| executable(line.pid).unwrap_or_else(|| line.command.clone()))
-            .clone();
+        let value = interpret(
+            self.probes[index].fetch,
+            line.fields.get("value").map(String::as_str),
+        );
+        let probe = &self.probes[index];
+        let executable = if probe.executable {
+            probe.library.display().to_string()
+        } else {
+            self.executables
+                .entry(line.pid)
+                .or_insert_with(|| executable(line.pid).unwrap_or_else(|| line.command.clone()))
+                .clone()
+        };
         let key = (executable, index, value);
         if let Some(count) = self.counts.get_mut(&key) {
             *count += 1;
@@ -418,24 +671,70 @@ impl Aggregator {
 
 /// What to record.
 pub struct Options {
+    /// OpenSSL libraries; the system's when empty.
     pub libraries: Vec<PathBuf>,
+    /// Executables to probe directly (Go programs, static OpenSSL builds).
+    pub binaries: Vec<PathBuf>,
+    /// Also probe the Go programs running when recording starts.
+    pub discover: bool,
     pub duration: std::time::Duration,
     /// Distinct calls kept (per executable, function and argument).
     pub max_distinct: usize,
 }
 
+impl Options {
+    /// What was asked for by name: the libraries (or the system's) and the named binaries.
+    pub fn named_targets(&self) -> Vec<PathBuf> {
+        let mut targets = if self.libraries.is_empty() {
+            default_libraries()
+        } else {
+            self.libraries.clone()
+        };
+        for binary in &self.binaries {
+            let binary = binary.canonicalize().unwrap_or_else(|_| binary.clone());
+            if !targets.contains(&binary) {
+                targets.push(binary);
+            }
+        }
+        targets
+    }
+
+    /// Running executables to consider, when discovery is on: paths only, nothing parsed.
+    pub fn candidates(&self) -> Vec<PathBuf> {
+        if !self.discover {
+            return Vec::new();
+        }
+        let named = self.named_targets();
+        let own = std::env::current_exe().ok();
+        running_executables()
+            .into_iter()
+            .filter(|path| !named.contains(path) && Some(path) != own.as_ref())
+            .collect()
+    }
+
+    /// The full plan: named targets (errors are fatal) and discovered Go programs (best effort).
+    /// Parses ELF files, so call it confined.
+    pub fn plan(&self, candidates: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
+        let mut probes = plan(&self.named_targets())?;
+        probes.extend(plan_discovered(candidates));
+        Ok(probes)
+    }
+}
+
 /// Records for `options.duration`, or until `stop` returns true.
+/// `probes` comes from [`Options::plan`].
 pub fn record(
     options: &Options,
+    probes: Vec<Probe>,
     stop: &(dyn Fn() -> bool + Sync),
 ) -> Result<(Trace, u64), TraceError> {
     #[cfg(target_os = "linux")]
     {
-        tracefs::record(options, stop)
+        tracefs::record(options, probes, stop)
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (options, stop);
+        let _ = (options, probes, stop);
         Err(TraceError::Unsupported)
     }
 }

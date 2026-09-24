@@ -82,6 +82,12 @@ kernels, and bytecode to audit, for no additional information. If per-call aggre
 kernel ever becomes necessary for very busy hosts, eBPF is the upgrade path; the probe plan and
 the trace format stay the same.
 
+Go programs carry their own cryptography, and production builds are stripped. Their functions
+are found in `.gopclntab`, the table the Go runtime keeps for stack traces (stripping removes the
+ELF symbols, not this), rather than by symbol name. Values are read with Go's register ABI; the
+negotiated TLS group comes from the `CurveID` that heads `crypto/tls`'s key-exchange structs,
+which is exact where a guess from the configuration would not be.
+
 ---
 
 ## 4. Demo anchor: generic engine, banking/UPI flagship scenario

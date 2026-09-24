@@ -111,6 +111,15 @@ struct TraceArgs {
     #[arg(long = "library")]
     libraries: Vec<PathBuf>,
 
+    /// An executable to probe directly (repeatable): a Go program, or a static OpenSSL build
+    /// with symbols. Go programs already running are found without it.
+    #[arg(long = "binary")]
+    binaries: Vec<PathBuf>,
+
+    /// Do not probe the Go programs that are running when recording starts.
+    #[arg(long)]
+    no_discover: bool,
+
     /// Trace destination; put it in the scanned estate, in the component it describes.
     #[arg(short, long, default_value = "runtime.lattice-trace.json")]
     output: PathBuf,
@@ -1079,15 +1088,42 @@ fn verify(args: VerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
 }
 
 fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
-    let libraries = if args.libraries.is_empty() {
-        lattice_tracer::default_libraries()
-    } else {
-        args.libraries.clone()
+    let options = lattice_tracer::Options {
+        libraries: args.libraries.clone(),
+        binaries: args.binaries.clone(),
+        discover: !args.no_discover,
+        duration: Duration::from_secs(args.duration),
+        max_distinct: 20_000,
     };
+    // Paths only so far: every ELF file is parsed after confinement, since a discovered
+    // executable may be hostile and this runs as root.
+    let named = options.named_targets();
+    let candidates = options.candidates();
+    let tracefs = ["/sys/kernel/tracing", "/sys/kernel/debug/tracing"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|root| root.join("uprobe_events").exists());
+    let uprobe_events = tracefs.as_ref().map(|root| root.join("uprobe_events"));
+    let mut read: Vec<&Path> = named
+        .iter()
+        .chain(&candidates)
+        .map(PathBuf::as_path)
+        .filter(|path| path.exists())
+        .collect();
+    read.push(Path::new("/proc"));
+    let mut write: Vec<&Path> = Vec::new();
+    if !args.dry_run {
+        write.push(&args.output);
+        write.extend(uprobe_events.as_deref());
+    }
+    let confinement = confine(sandbox, &read, &write)?;
+    let probes = options.plan(&candidates)?;
+
     if args.dry_run {
-        let probes = lattice_tracer::plan(&libraries)?;
         let mut by_kind: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut targets = std::collections::BTreeSet::new();
         for probe in &probes {
+            targets.insert(probe.library.clone());
             let role = match probe.role {
                 lattice_tracer::Role::Call(kind) => format!("{kind:?}"),
                 lattice_tracer::Role::SetupEnter => "setup entry".into(),
@@ -1105,9 +1141,9 @@ fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
             }
         }
         println!(
-            "{} probes in {} libraries ({}); legacy getters not listed",
+            "{} probes in {} libraries and executables ({}); legacy getters not listed",
             probes.len(),
-            libraries.len(),
+            targets.len(),
             by_kind
                 .iter()
                 .map(|(kind, count)| format!("{kind} {count}"))
@@ -1116,19 +1152,6 @@ fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
         );
         return Ok(EXIT_OK);
     }
-
-    // confined: tracefs and the output are writable, the libraries and /proc readable; no
-    // network and no program execution
-    let tracefs = ["/sys/kernel/tracing", "/sys/kernel/debug/tracing"]
-        .into_iter()
-        .map(PathBuf::from)
-        .find(|root| root.join("uprobe_events").exists());
-    let mut read: Vec<&Path> = libraries.iter().map(PathBuf::as_path).collect();
-    read.push(Path::new("/proc"));
-    let uprobe_events = tracefs.as_ref().map(|root| root.join("uprobe_events"));
-    let mut write: Vec<&Path> = vec![&args.output];
-    write.extend(uprobe_events.as_deref());
-    let confinement = confine(sandbox, &read, &write)?;
 
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
@@ -1150,12 +1173,7 @@ fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
         args.duration,
         confinement.summary()
     );
-    let options = lattice_tracer::Options {
-        libraries,
-        duration: Duration::from_secs(args.duration),
-        max_distinct: 20_000,
-    };
-    let (recorded, dropped) = lattice_tracer::record(&options, &|| {
+    let (recorded, dropped) = lattice_tracer::record(&options, probes, &|| {
         stop.load(std::sync::atomic::Ordering::Relaxed)
     })?;
     write_atomic(&args.output, &pretty(&recorded)?)?;

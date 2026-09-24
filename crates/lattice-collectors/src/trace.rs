@@ -147,10 +147,21 @@ impl Collector for TraceCollector {
                     if let Some(algorithm) = names::resolve(value) {
                         // the fetch says what the algorithm does: RSA fetched as a signature signs
                         let primitive = match event.function.as_str() {
-                            "EVP_SIGNATURE_fetch" => Some(Primitive::Signature),
+                            "EVP_SIGNATURE_fetch"
+                            | "crypto/rsa.SignPKCS1v15"
+                            | "crypto/rsa.SignPSS" => Some(Primitive::Signature),
                             "EVP_KEM_fetch" => Some(Primitive::Kem),
                             "EVP_KEYEXCH_fetch" => Some(Primitive::KeyAgree),
-                            "EVP_ASYM_CIPHER_fetch" => Some(Primitive::Pke),
+                            // RSA encryption, and TLS 1.2 RSA key transport
+                            "EVP_ASYM_CIPHER_fetch"
+                            | "crypto/rsa.EncryptPKCS1v15"
+                            | "crypto/rsa.EncryptOAEP"
+                            | "crypto/rsa.DecryptPKCS1v15"
+                            | "crypto/rsa.DecryptOAEP"
+                            | "crypto/tls.(*rsaKeyAgreement).processClientKeyExchange"
+                            | "crypto/tls.(*rsaKeyAgreement).generateClientKeyExchange" => {
+                                Some(Primitive::Pke)
+                            }
                             _ => None,
                         };
                         push(Finding::Algorithm(AlgorithmFinding {

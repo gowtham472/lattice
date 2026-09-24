@@ -63,7 +63,7 @@ analyses (see [decisions.md §9](decisions.md)).
   unconfined. *Enforced.*
 - **Fuzzing** of every parser of hostile input with `cargo-fuzz` (`fuzz/`, run by
   `scripts/fuzz.py`): certificates and keys, configuration, source, binaries, packet captures,
-  container archives and algorithm names, without the panic isolation that contains them in a
+  container archives, algorithm names and Go function tables, without the panic isolation that contains them in a
   scan. *Enforced*: briefly on every push and for fifteen minutes per target nightly in CI
   (`.github/workflows/ci.yml`), with corpora carried between runs.
 
@@ -79,7 +79,9 @@ analyses (see [decisions.md §9](decisions.md)).
   a TLS list), never data or keys. Events go to a private tracefs instance; every probe and the
   instance are removed when recording ends, including on Ctrl-C (tested). The recorder runs under
   the same Landlock and seccomp sandbox as a scan, with tracefs and the output as the only
-  writable paths. *Enforced.*
+  writable paths. Running executables are discovered as paths only; every ELF file is parsed
+  after confinement, and the Go function-table parser is fuzzed (a crafted table that overflowed
+  an address was found this way and fixed). *Enforced.*
 - **No secrets from key references.** When configuration names a key held in hardware, only the
   token, object label, engine or handle is recorded; the query part of a PKCS#11 URI (where
   `pin-value` lives) and Vault seal PINs are never read into a finding. *Enforced (tested).*

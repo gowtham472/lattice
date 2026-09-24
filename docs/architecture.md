@@ -339,6 +339,15 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   algorithm, group and suite it names is Confirmed ("called by a running process"), and a fetch
   through `EVP_SIGNATURE_fetch` or `EVP_KEM_fetch` pins what the algorithm is used for. The
   mechanism is the kernel's uprobe tracer rather than eBPF bytecode (see decisions §3).
+- **Go programs** link their own cryptography, so they are probed directly. Their functions are
+  found in the Go runtime's function table (`.gopclntab`), which stripping keeps, and probed with
+  Go's register ABI: the `crypto/...` entry points that name an algorithm (`md5.Sum`,
+  `des.NewTripleDESCipher`, `mlkem.GenerateKey768`), the key length passed to `aes.NewCipher`,
+  the size passed to `rsa.GenerateKey`, and, from the first field of `crypto/tls`'s key-exchange
+  receivers, the group each handshake actually negotiated. The Go programs running when a
+  recording starts are found through `/proc/*/exe`; only the links are read before confinement,
+  and every ELF file (hostile ones included) is parsed inside the sandbox, by a parser that is
+  fuzzed. A probe the kernel cannot arm is skipped, never allowed to stop the others.
 - **Key custody.** A key in an HSM, smart card, TPM or cloud key service never appears as a file,
   but the configuration that uses it names it. The config collector finds PKCS#11 URIs (RFC 7512,
   dropping the query where `pin-value` lives), OpenSSL `engine:` and TPM persistent-handle
@@ -365,7 +374,7 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   reviewed diff (`LATTICE_BLESS=1` regenerates it).
 - **Fuzzing.** `fuzz/` holds `cargo-fuzz` targets for every parser of hostile input: certificates
   and keys (through the collector and the raw DER/OpenSSH decoders), configuration, source in
-  every language, binaries, packet captures, container archives and algorithm names. The targets
+  every language, binaries, packet captures, container archives, algorithm names and Go function tables. The targets
   call the parsers without the per-file panic isolation a scan uses, so a panic is a finding, not
   a contained failure. `scripts/fuzz.py` seeds them from the repository and runs them.
 - **A golden scan of OpenSSL.** `scripts/openssl-golden.py` downloads a pinned OpenSSL release
@@ -384,7 +393,7 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 
 | Item | Status |
 |------|--------|
-| Runtime tracing beyond OpenSSL (Go, BoringSSL, rustls, the JVM) | Planned; OpenSSL is traced today, captures cover the rest |
+| Runtime tracing of BoringSSL, rustls and the JVM | Planned; OpenSSL and Go are traced today, captures cover the rest |
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
 | Live scan progress over WebSocket | Not built; the cockpit polls |

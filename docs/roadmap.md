@@ -66,6 +66,8 @@ Each phase is one commit in the history.
     compared against a reviewed scan of OpenSSL 3.5.5; parsers are fuzzed for longer nightly.
 19. **Runtime tracing**: `lattice trace` records which cryptography running processes ask
     OpenSSL for, through kernel uprobes, ignoring OpenSSL's own setup enumeration.
+20. **Go tracing**: Go programs, stripped or not, found automatically; key sizes and the TLS
+    group each handshake negotiated.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -76,8 +78,8 @@ Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 
 In order of value to an operator:
 
-1. **Tracing beyond OpenSSL**: statically linked TLS stacks (Go `crypto/tls`, BoringSSL,
-   rustls) and the JVM's JCA providers, which OpenSSL uprobes do not see.
+1. **Tracing BoringSSL, rustls and the JVM**: statically linked TLS stacks without Go's
+   function table, and the JCA providers of a running JVM.
 2. **Windows and macOS builds**, with a platform sandbox for each.
 3. **Live scan progress** pushed to the cockpit instead of polled.
 

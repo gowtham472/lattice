@@ -51,6 +51,16 @@ jobs:
             target
           key: rust-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
           restore-keys: rust-${{ runner.os }}-
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Go test binaries for the tracer (unstripped and stripped)
+        working-directory: crates/lattice-tracer/testdata/gocrypto
+        run: |
+          go build -o "$RUNNER_TEMP/gocrypto" .
+          go build -ldflags="-s -w" -o "$RUNNER_TEMP/gocrypto-stripped" .
+          echo "LATTICE_TEST_GO_BINARIES=$RUNNER_TEMP/gocrypto:$RUNNER_TEMP/gocrypto-stripped" >> "$GITHUB_ENV"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

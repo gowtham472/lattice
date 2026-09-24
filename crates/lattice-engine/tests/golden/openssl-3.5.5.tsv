@@ -243,16 +243,16 @@ crypto/algorithm/gmac/aa359c526c015700	GMAC	low	18	replace	1
 crypto/algorithm/gmac/ecf0621966dfea91	GMAC	low	17	replace	1
 crypto/algorithm/hkdf/6969f0826bb80f6f	HKDF	low	18	replace	1
 crypto/algorithm/hkdf/949cb90b417c70ec	HKDF	info	0	replace	1
-crypto/algorithm/hmac/37c186da8888657f	HMAC	low	17	replace	1
+crypto/algorithm/hmac/37c186da8888657f	HMAC	low	17	review	1
 crypto/algorithm/hmac/4e0bdb4ad90800d7	HMAC (SHA-256)	info	0	retain	34
-crypto/algorithm/hmac/554b972e58a8c271	HMAC	low	17	replace	4
+crypto/algorithm/hmac/554b972e58a8c271	HMAC	low	17	review	4
 crypto/algorithm/hmac/9d0b132fbff98fc4	HMAC (MD5)	info	0	upgrade	1
-crypto/algorithm/hmac/ad2ae50c7a5188a5	HMAC	low	18	replace	1
+crypto/algorithm/hmac/ad2ae50c7a5188a5	HMAC	low	18	review	1
 crypto/algorithm/hmac/b855f336531c8f1f	HMAC (SHA-1)	info	0	upgrade	43
-crypto/algorithm/hmac/ba622a13ef2e753d	HMAC	low	17	replace	7
-crypto/algorithm/hmac/d48e0259b2b58a13	HMAC	info	0	replace	7
+crypto/algorithm/hmac/ba622a13ef2e753d	HMAC	low	17	review	7
+crypto/algorithm/hmac/d48e0259b2b58a13	HMAC	info	0	review	7
 crypto/algorithm/hmac/d9f844ecb12f5338	HMAC (SHA-384)	info	0	retain	21
-crypto/algorithm/hmac/ffdafd60a4852bee	HMAC	low	29	replace	7
+crypto/algorithm/hmac/ffdafd60a4852bee	HMAC	low	29	review	7
 crypto/algorithm/idea/09df2f150f2c919e	IDEA-CFB	medium	50	replace	1
 crypto/algorithm/idea/18a25d622ff65d7c	IDEA-CBC	medium	50	replace	1
 crypto/algorithm/idea/462b03babb80fd0f	IDEA-OFB	medium	50	replace	1

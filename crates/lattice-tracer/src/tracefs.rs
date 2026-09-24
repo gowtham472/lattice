@@ -1,6 +1,6 @@
 //! The privileged part: uprobes through tracefs, in a private trace instance.
 
-use crate::{Aggregator, Options, Probe, TraceError, default_libraries, definition, parse, plan};
+use crate::{Aggregator, Options, Probe, TraceError, definition, parse};
 use lattice_collectors::trace::Trace;
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
@@ -83,26 +83,11 @@ fn executable(pid: u32) -> Option<String> {
 
 pub(crate) fn record(
     options: &Options,
+    probes: Vec<Probe>,
     stop: &(dyn Fn() -> bool + Sync),
 ) -> Result<(Trace, u64), TraceError> {
-    let libraries = if options.libraries.is_empty() {
-        default_libraries()
-    } else {
-        options.libraries.clone()
-    };
-    if libraries.is_empty() {
-        return Err(TraceError::NoLibrary);
-    }
-    let probes: Vec<Probe> = plan(&libraries)?;
     if probes.is_empty() {
-        return Err(TraceError::Library(
-            libraries
-                .iter()
-                .map(|l| l.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-            "exports none of the functions LATTICE traces".into(),
-        ));
+        return Err(TraceError::NoLibrary);
     }
 
     let root = tracefs_root()?;
@@ -155,8 +140,25 @@ pub(crate) fn record(
             )?;
         }
     }
+    // enable one by one: a probe the kernel cannot arm (a binary on a filesystem without uprobe
+    // support) is skipped, never allowed to stop the others
+    let mut enabled = 0usize;
+    for name in &session.defined {
+        match fs::write(events_dir.join(name).join("enable"), "1") {
+            Ok(()) => enabled += 1,
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+                return Err(describe(&events_dir, error));
+            }
+            Err(error) => {
+                tracing::debug!(event = %name, %error, "uprobe could not be enabled");
+                rejected += 1;
+            }
+        }
+    }
+    if enabled == 0 {
+        return Err(TraceError::Tracefs("the kernel enabled no uprobe".into()));
+    }
     let started_at = SystemTime::now();
-    write(&events_dir.join("enable"), "1")?;
 
     let pipe_path = session.instance.join("trace_pipe");
     let mut pipe: File = OpenOptions::new()
@@ -192,6 +194,7 @@ pub(crate) fn record(
         }
     }
     // stop producing, then take what is still buffered
+    let recorded = begun.elapsed();
     let _ = fs::write(events_dir.join("enable"), "0");
     while drain(&mut pipe, &mut aggregator)? {}
     drop(pipe);
@@ -202,7 +205,7 @@ pub(crate) fn record(
         .map_or(0, |d| d.as_secs() as i64);
     let dropped = aggregator.dropped + rejected;
     Ok((
-        aggregator.finish(lattice_core::rfc3339(seconds), begun.elapsed().as_secs()),
+        aggregator.finish(lattice_core::rfc3339(seconds), recorded.as_secs()),
         dropped,
     ))
 }
