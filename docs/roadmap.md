@@ -69,6 +69,8 @@ Each phase is one commit in the history.
 20. **Go tracing**: Go programs, stripped or not, found automatically; key sizes and the TLS
     group each handshake negotiated.
 21. **Live progress**: scans stream their progress to the cockpit and the terminal.
+22. **Windows build**: cross-compiled with zig, identical output to Linux, process mitigations
+    as its sandbox.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -81,7 +83,7 @@ In order of value to an operator:
 
 1. **Tracing BoringSSL, rustls and the JVM**: statically linked TLS stacks without Go's
    function table, and the JCA providers of a running JVM.
-2. **Windows and macOS builds**, with a platform sandbox for each.
+2. **macOS builds**, and filesystem confinement on Windows (an AppContainer relaunch).
 
 ---
 

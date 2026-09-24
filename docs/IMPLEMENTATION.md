@@ -38,7 +38,7 @@ flowchart TD
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards, users and roles, hash-chained audit log, TLS 1.3 with X25519MLKEM768 and mutual TLS, progress events | 14 |
 | `lattice-report` | Executive PDF: a deterministic PDF writer (standard fonts, exact metrics) and the report layout, rendered from the report JSON | 5 |
 | `lattice-tracer` | Runtime tracing: probe plan from ELF symbols and Go function tables, C and Go register ABIs, uprobe definitions, tracefs session with guaranteed cleanup, setup-window filtering, aggregation | 10 (+ tested as root) |
-| `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
+| `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter; Windows process mitigation policies | via `sandbox-check` |
 | `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `report`, `serve`, `user`, `audit`, `trace`, `sandbox-check`, `knowledge` | 11 end-to-end |
 | `cockpit` | React 19 + TypeScript: overview and Mosca timeline, inventory, explanation drawer, exposure graph, roadmap, compare, scan launcher | typecheck |
 
@@ -86,6 +86,7 @@ flowchart TD
 | Runtime tracing of OpenSSL calls on live hosts (`lattice trace`) | Delivered |
 | Runtime tracing of Go programs, stripped or not | Delivered |
 | Live scan progress (server-sent events, terminal) | Delivered |
+| Windows build with process mitigations; output identical to Linux | Delivered (mitigations verified in CI) |
 
 ## Usage
 

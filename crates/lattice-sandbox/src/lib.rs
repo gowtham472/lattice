@@ -15,6 +15,13 @@
 //! Both apply to every thread and are irreversible for the life of the process. Where the kernel
 //! or platform lacks a mechanism the [`Report`] says so; in [`Mode::Required`] that is an error.
 //!
+//! On Windows, an unprivileged process cannot confine its own filesystem or network access
+//! (that takes an AppContainer relaunch or administrator rights), but it can apply process
+//! mitigation policies: no child processes, no dynamically generated code, no images from remote
+//! shares or low-integrity files, no legacy extension points. Those are applied and reported as a
+//! partial system-call layer; the filesystem layer is reported unavailable, so `required`
+//! refuses to run there.
+//!
 //! Landlock attaches rules to inodes, and some filesystems do not keep inodes stable across
 //! lookups: on 9p (the filesystem WSL uses for Windows drives) a confined process is denied even
 //! the paths it was granted. Such paths are detected before confinement and Landlock is skipped,
@@ -76,6 +83,18 @@ pub struct Report {
     pub mode: Mode,
     pub filesystem: Layer,
     pub syscalls: Layer,
+    /// Capabilities the enforced layers take away, one by one, so a partial layer is exact.
+    pub denies: Denied,
+}
+
+/// What confinement has taken away from the process.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Denied {
+    /// New sockets: no connection can be opened.
+    pub network: bool,
+    /// Running other programs.
+    pub execution: bool,
 }
 
 impl Report {
@@ -106,13 +125,15 @@ pub fn apply(plan: &Plan, mode: Mode) -> Result<Report, SandboxError> {
             mode,
             filesystem: Layer::Off,
             syscalls: Layer::Off,
+            denies: Denied::default(),
         });
     }
-    let (filesystem, syscalls) = platform::apply(plan)?;
+    let (filesystem, syscalls, denies) = platform::apply(plan)?;
     let report = Report {
         mode,
         filesystem,
         syscalls,
+        denies,
     };
     if mode == Mode::Required {
         for (layer, state) in [
@@ -132,7 +153,7 @@ pub fn apply(plan: &Plan, mode: Mode) -> Result<Report, SandboxError> {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    use super::{Layer, Plan, SandboxError};
+    use super::{Denied, Layer, Plan, SandboxError};
     use landlock::{
         ABI, Access, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr,
         RulesetStatus, path_beneath_rules,
@@ -147,13 +168,17 @@ mod platform {
     /// `statfs` magic of 9p (v9fs), where Landlock path rules do not hold.
     const V9FS_MAGIC: i64 = 0x0102_1997;
 
-    pub fn apply(plan: &Plan) -> Result<(Layer, Layer), SandboxError> {
+    pub fn apply(plan: &Plan) -> Result<(Layer, Layer, Denied), SandboxError> {
         let filesystem = landlock(plan)?;
         let syscalls = seccomp()?;
         if filesystem.is_active() {
             check_readable(plan)?;
         }
-        Ok((filesystem, syscalls))
+        let denies = Denied {
+            network: syscalls.is_active(),
+            execution: syscalls.is_active(),
+        };
+        Ok((filesystem, syscalls, denies))
     }
 
     /// A filesystem Landlock cannot confine correctly, if `path` is on one.
@@ -315,15 +340,87 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+/// Process mitigation policies. The only unsafe code in LATTICE: four calls of one documented
+/// Win32 function, each passing a single DWORD of flags.
+#[cfg(windows)]
+#[allow(unsafe_code)]
 mod platform {
-    use super::{Layer, Plan, SandboxError};
+    use super::{Denied, Layer, Plan, SandboxError};
+    use std::ffi::c_void;
 
-    pub fn apply(_plan: &Plan) -> Result<(Layer, Layer), SandboxError> {
+    // PROCESS_MITIGATION_POLICY values (winnt.h)
+    const DYNAMIC_CODE: i32 = 2;
+    const EXTENSION_POINT_DISABLE: i32 = 6;
+    const IMAGE_LOAD: i32 = 10;
+    const CHILD_PROCESS: i32 = 13;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetProcessMitigationPolicy(policy: i32, buffer: *const c_void, length: usize) -> i32;
+    }
+
+    /// Applies one policy whose structure is a single DWORD of flags.
+    fn set(policy: i32, flags: u32) -> bool {
+        // SAFETY: each policy used here is a one-DWORD structure (PROCESS_MITIGATION_*_POLICY),
+        // and `flags` is a valid, aligned u32 for the duration of the call.
+        unsafe {
+            SetProcessMitigationPolicy(
+                policy,
+                (&raw const flags).cast::<c_void>(),
+                std::mem::size_of::<u32>(),
+            ) != 0
+        }
+    }
+
+    pub fn apply(_plan: &Plan) -> Result<(Layer, Layer, Denied), SandboxError> {
+        // NoChildProcessCreation; ProhibitDynamicCode; NoRemoteImages | NoLowMandatoryLabelImages;
+        // DisableExtensionPoints
+        let children = set(CHILD_PROCESS, 0b1);
+        let applied = [
+            (children, "no child processes"),
+            (set(DYNAMIC_CODE, 0b1), "no dynamic code"),
+            (set(IMAGE_LOAD, 0b11), "no remote or low-integrity images"),
+            (
+                set(EXTENSION_POINT_DISABLE, 0b1),
+                "no legacy extension points",
+            ),
+        ];
+        let names: Vec<&str> = applied
+            .iter()
+            .filter(|(ok, _)| *ok)
+            .map(|(_, name)| *name)
+            .collect();
+        let syscalls = if names.is_empty() {
+            Layer::Unavailable("process mitigation policies were refused".into())
+        } else {
+            Layer::Partial(format!(
+                "Windows process mitigations: {}; the network is not restricted",
+                names.join(", ")
+            ))
+        };
+        Ok((
+            Layer::Unavailable(
+                "Windows offers no unprivileged filesystem confinement of a running process".into(),
+            ),
+            syscalls,
+            Denied {
+                network: false,
+                execution: children,
+            },
+        ))
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
+mod platform {
+    use super::{Denied, Layer, Plan, SandboxError};
+
+    pub fn apply(_plan: &Plan) -> Result<(Layer, Layer, Denied), SandboxError> {
         let reason = format!("not implemented on {}", std::env::consts::OS);
         Ok((
             Layer::Unavailable(reason.clone()),
             Layer::Unavailable(reason),
+            Denied::default(),
         ))
     }
 }

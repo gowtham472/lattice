@@ -58,6 +58,11 @@ analyses (see [decisions.md §9](decisions.md)).
   - **seccomp**: no new sockets, no program execution, no ptrace or cross-process memory, no
     mounts, namespaces, kernel modules, BPF, keyrings or personality changes.
 
+  On Windows the process applies mitigation policies instead: no child processes, no
+  dynamically generated code, no images from remote shares or low-integrity files, no legacy
+  extension points. It cannot confine its own filesystem or network access without an
+  AppContainer relaunch, so those are reported unavailable and `--sandbox required` refuses.
+
   Both cover every thread and cannot be undone. `lattice sandbox-check` proves them by
   attempting each forbidden operation in a confined child; `--sandbox required` refuses to run
   unconfined. *Enforced.*

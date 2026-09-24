@@ -102,6 +102,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Incremental scans: a content-addressed cache reuses unchanged files, with byte-identical output | Delivered |
 | Named users with viewer, operator and admin roles; a hash-chained, verifiable audit log of every API call | Delivered |
 | TLS 1.3 only with hybrid X25519MLKEM768 key exchange first; mutual TLS with client certificates pinned to users | Delivered |
+| Windows build (x86_64): the same CBOM and report as Linux, byte for byte; process mitigations (no child processes, no dynamic code, no remote images) in place of Landlock and seccomp | Delivered |
 | Cockpit embedded in the binary | Planned; shipped as static files beside it |
 
 ---

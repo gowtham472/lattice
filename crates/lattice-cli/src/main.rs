@@ -1736,7 +1736,6 @@ fn run_probes(
     };
     let expect = |active: bool| if active { "denied" } else { "allowed" }.to_owned();
     let filesystem = report.filesystem.is_active();
-    let syscalls = report.syscalls.is_active();
     let probe = |name: &str, layer: &str, expected: String, observed: String| Probe {
         name: name.into(),
         layer: layer.into(),
@@ -1776,13 +1775,13 @@ fn run_probes(
         probe(
             "open a network connection",
             "system-call",
-            expect(syscalls),
+            expect(report.denies.network),
             network,
         ),
         probe(
             "run another program",
             "system-call",
-            expect(syscalls),
+            expect(report.denies.execution),
             observe(
                 std::process::Command::new(std::env::current_exe()?)
                     .arg("--version")

@@ -38,6 +38,20 @@ LATTICE_RELEASE_KEY=release.key LATTICE_RELEASE_PUB=release.pub scripts/release.
 The release key is an ML-DSA-65 key from `lattice keygen`. Keep the private half offline; publish
 the public half separately from the release (a website, a signed commit, an out-of-band channel).
 
+## Windows
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+cargo zigbuild --release --target x86_64-pc-windows-gnu -p lattice-cli   # lattice.exe
+```
+
+The Windows build produces the same CBOM and report as Linux, byte for byte (CI compares them
+on a Windows runner). Its sandbox is the process mitigation policies: no child processes, no
+dynamic code, no remote or low-integrity images; `lattice sandbox-check` shows which apply.
+Filesystem and network confinement are Linux-only, so run `--sandbox best-effort` there.
+`lattice trace` is Linux-only. The binary is not code-signed; Smart App Control or a WDAC policy
+may block it until it is signed or allowed.
+
 ## Verifying a download
 
 ```bash

@@ -114,6 +114,58 @@ jobs:
       - name: Compare with crates/lattice-engine/tests/golden/openssl-*.tsv
         run: python3 scripts/openssl-golden.py --lattice target/release/lattice --sandbox best-effort
 
+  windows-build:
+    name: Windows build (cross-compiled with zig)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain, zig and cargo-zigbuild
+        run: |
+          bash scripts/install-toolchain.sh
+          rustup target add x86_64-pc-windows-gnu
+      - name: lattice.exe, and the Linux CBOM of the demo estate to compare against
+        run: |
+          . scripts/dev-env.sh
+          cargo zigbuild --release --locked --target x86_64-pc-windows-gnu -p lattice-cli
+          mkdir -p dist
+          cp target/x86_64-pc-windows-gnu/release/lattice.exe dist/
+          SOURCE_DATE_EPOCH=1790121600 cargo run --release --locked -q -p lattice-cli --             --sandbox off scan examples/demo-estate -o dist/linux.cbom.json --report dist/linux.report.json --quiet
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows
+          path: dist
+
+  windows-run:
+    name: Windows run (sandbox probes, identical CBOM)
+    needs: windows-build
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows
+          path: dist
+      - name: Version and sandbox probes
+        shell: pwsh
+        run: |
+          ./dist/lattice.exe --version
+          ./dist/lattice.exe sandbox-check
+          ./dist/lattice.exe sandbox-check --json | Out-File -Encoding utf8 check.json
+          if ($LASTEXITCODE -ne 0) { throw "a probe disagreed with the reported sandbox" }
+          $check = Get-Content check.json -Raw | ConvertFrom-Json
+          if (-not $check.sandbox.denies.execution) { throw "process mitigations did not deny child processes" }
+      - name: The demo estate's CBOM and report are byte-identical to Linux's
+        shell: pwsh
+        run: |
+          $env:SOURCE_DATE_EPOCH = "1790121600"
+          ./dist/lattice.exe scan examples/demo-estate -o win.cbom.json --report win.report.json --quiet
+          foreach ($pair in @(@("win.cbom.json", "dist/linux.cbom.json"), @("win.report.json", "dist/linux.report.json"))) {
+            if ((Get-FileHash $pair[0]).Hash -ne (Get-FileHash $pair[1]).Hash) { throw "$($pair[0]) differs from $($pair[1])" }
+          }
+
   fuzz:
     name: Fuzz every parser
     runs-on: ubuntu-24.04

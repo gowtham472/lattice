@@ -16,5 +16,7 @@ libc.workspace = true
 rustix.workspace = true
 seccompiler.workspace = true
 
-[lints]
-workspace = true
+# The workspace forbids unsafe code; this crate denies it instead, so the one Windows module
+# that calls SetProcessMitigationPolicy can allow it locally (see src/lib.rs).
+[lints.rust]
+unsafe_code = "deny"

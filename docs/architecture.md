@@ -402,4 +402,4 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 | Runtime tracing of BoringSSL, rustls and the JVM | Planned; OpenSSL and Go are traced today, captures cover the rest |
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
-| Windows and macOS builds | Not built; the sandbox is Linux-only |
+| macOS builds | Not built. Windows is built (x86_64-pc-windows-gnu) with process mitigations as its sandbox; filesystem and network confinement stay Linux-only |
