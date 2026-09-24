@@ -11,24 +11,32 @@ axum.workspace = true
 blake3.workspace = true
 getrandom.workspace = true
 hex.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 lattice-cbom = { path = "../lattice-cbom" }
 lattice-core = { path = "../lattice-core" }
 lattice-engine = { path = "../lattice-engine" }
 lattice-report = { path = "../lattice-report" }
 lattice-risk = { path = "../lattice-risk" }
 lattice-sandbox = { path = "../lattice-sandbox" }
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-rustls.workspace = true
 toml.workspace = true
+tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 http-body-util.workspace = true
+rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
+# a TLS 1.2 client, to prove the server refuses it; never in the shipped binary
+rustls = { workspace = true, features = ["tls12"] }
 tempfile.workspace = true
-tower.workspace = true
 
 [lints]
 workspace = true

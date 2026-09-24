@@ -141,6 +141,14 @@ export function App() {
                 Q-day window {health.qDay[0]}–{health.qDay[1]}
               </span>
               <span>offline · read-only</span>
+              <span
+                title={health.tls ? `key exchange preference: ${health.tls.keyExchange.join(', ')}` : 'served over plain HTTP on loopback'}
+                style={{ color: health.tls ? 'var(--safe)' : undefined }}
+              >
+                {health.tls
+                  ? `${health.tls.protocol.replace('v', ' ')} · ${health.tls.keyExchange[0]}${health.tls.clientCertificates ? ' · mTLS' : ''}`
+                  : 'HTTP (loopback)'}
+              </span>
               {me && health.authentication && (
                 <span>
                   signed in as <strong>{me.name}</strong> ({me.role}){' '}

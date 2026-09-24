@@ -16,10 +16,17 @@ Type=simple
 EnvironmentFile=/etc/lattice/lattice.env
 ExecStart=/usr/bin/lattice --sandbox required serve --bind ${LATTICE_BIND} --root ${LATTICE_ROOT} --data-dir /var/lib/lattice
 # Named users with roles: issue tokens with
-#   lattice token --name alice --role operator --users /etc/lattice/users.toml
+#   lattice user add --name alice --role operator --users /etc/lattice/users.toml
 # then uncomment both lines; the file reaches the service as a private credential.
 #LoadCredential=users.toml:/etc/lattice/users.toml
 #Environment=LATTICE_USERS=%d/users.toml
+# TLS 1.3 with hybrid post-quantum key exchange (required when binding beyond loopback);
+# add the client CA for mutual TLS. The key reaches the service as a private credential.
+#LoadCredential=tls.pem:/etc/lattice/tls.pem
+#LoadCredential=tls.key:/etc/lattice/tls.key
+#Environment=LATTICE_TLS_CERT=%d/tls.pem LATTICE_TLS_KEY=%d/tls.key
+#LoadCredential=client-ca.pem:/etc/lattice/client-ca.pem
+#Environment=LATTICE_CLIENT_CA=%d/client-ca.pem
 Restart=on-failure
 
 # identity and privileges

@@ -598,7 +598,8 @@ fn issued_tokens_are_enforced_and_audited() {
 
     let issued = lattice(
         &[
-            "token",
+            "user",
+            "add",
             "--name",
             "vera",
             "--role",
@@ -613,7 +614,8 @@ fn issued_tokens_are_enforced_and_audited() {
     assert!(token.starts_with("lattice_"), "{token}");
     let again = lattice(
         &[
-            "token",
+            "user",
+            "add",
             "--name",
             "vera",
             "--role",

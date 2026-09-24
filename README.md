@@ -41,8 +41,12 @@ lattice verify demo.cbom.json --public-key keys/lattice-signing.pub
 lattice validate demo.cbom.json
 
 # serve the cockpit to named users with roles; every call lands in a hash-chained audit log
-lattice token --name alice --role operator --users users.toml
-lattice serve --root estate=/srv/code --users users.toml --data-dir .lattice
+lattice user add --name alice --role operator --users users.toml
+lattice serve --root estate=/srv/code --users users.toml --data-dir .lattice \
+    --bind 0.0.0.0:7443 --tls-cert server.pem --tls-key server.key   # TLS 1.3, X25519MLKEM768 first
+# or pin client certificates instead of tokens, and require them (mutual TLS)
+lattice user add --name bob --role viewer --certificate bob.pem --users users.toml
+lattice serve ... --client-ca clients-ca.pem
 lattice audit verify .lattice/audit.jsonl
 
 # CI gate: exit 1 on new or worsened high-risk crypto, 3 if the signed baseline fails verification

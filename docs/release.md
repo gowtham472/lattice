@@ -65,12 +65,16 @@ lattice sandbox-check
 ```bash
 sudo install -D -m 0600 /usr/share/doc/lattice/lattice.env.example /etc/lattice/lattice.env
 sudoedit /etc/lattice/lattice.env          # roots, bind address
-sudo lattice token --name alice --role operator --users /etc/lattice/users.toml
+sudo lattice user add --name alice --role operator --users /etc/lattice/users.toml
 sudo systemctl edit --full lattice         # uncomment LoadCredential and LATTICE_USERS
 sudo systemctl enable --now lattice
 ```
 
-Each `lattice token` prints the new token once; the users file keeps only its digest. Every API
+To serve beyond loopback, give the service a certificate: the unit has commented
+`LoadCredential` lines for the certificate, its key and, for mutual TLS, the client CA. The server
+then speaks TLS 1.3 only, preferring the hybrid X25519MLKEM768 key exchange.
+
+Each `lattice user add` without `--certificate` prints the new token once; the users file keeps only its digest. Every API
 call is recorded in `/var/lib/lattice/audit.jsonl`; check it with `lattice audit verify`.
 
 The unit runs with a dynamic user and no capabilities, a read-only filesystem except its

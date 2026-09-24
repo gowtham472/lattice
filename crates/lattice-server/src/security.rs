@@ -57,6 +57,7 @@ pub async fn guard(State(state): State<Arc<AppState>>, request: Request, next: N
             .headers()
             .get(header::AUTHORIZATION)
             .and_then(|h| h.to_str().ok()),
+        request.extensions().get::<crate::tls::ClientCertificate>(),
     );
     let response = match &principal {
         None => ApiError::new(StatusCode::UNAUTHORIZED, "a valid bearer token is required")

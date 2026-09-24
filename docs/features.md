@@ -98,7 +98,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Signed knowledge bundles updated independently of releases, with rollback protection | Delivered |
 | Incremental scans: a content-addressed cache reuses unchanged files, with byte-identical output | Delivered |
 | Named users with viewer, operator and admin roles; a hash-chained, verifiable audit log of every API call | Delivered |
-| TLS and mutual-TLS client authentication in the server | Planned (reverse proxy meanwhile) |
+| TLS 1.3 only with hybrid X25519MLKEM768 key exchange first; mutual TLS with client certificates pinned to users | Delivered |
 | Cockpit embedded in the binary | Planned; shipped as static files beside it |
 
 ---

@@ -356,6 +356,5 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
 | Live scan progress over WebSocket | Not built; the cockpit polls |
-| TLS and mTLS in the server | Planned; roles, named users and the audit log are built, TLS is terminated by a reverse proxy |
 | A golden CBOM of an OpenSSL release | Planned; the demo estate has one today |
 | Windows and macOS builds | Not built; the sandbox is Linux-only |

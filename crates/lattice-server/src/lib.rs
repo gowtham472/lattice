@@ -17,7 +17,9 @@
 //! ```
 //!
 //! Everything but `/api/health` needs at least the viewer role (see [`access`]), and every call
-//! is recorded in the audit log (see [`audit`]).
+//! is recorded in the audit log (see [`audit`]). With a certificate the server speaks TLS 1.3 with
+//! hybrid post-quantum key exchange, optionally requiring client certificates (see [`tls`]); a
+//! non-loopback address is never served over plain HTTP unless the operator says so.
 //!
 //! Scans run one at a time on the blocking pool; the async runtime only moves bytes. Every
 //! response carries a strict Content-Security-Policy, and API responses are never cached.
@@ -26,6 +28,7 @@ pub mod access;
 pub mod audit;
 mod security;
 mod store;
+pub mod tls;
 
 pub use access::{Principal, Role, User};
 pub use security::Root;
@@ -63,6 +66,11 @@ pub enum ServerError {
         "refusing to listen on non-loopback address {0} without API credentials (--users or --token)"
     )]
     TokenRequired(SocketAddr),
+    #[error(
+        "refusing plain HTTP on non-loopback address {0}: give a certificate (--tls-cert, --tls-key), \
+         or --allow-plain-http when a TLS-terminating proxy is in front"
+    )]
+    PlainHttp(SocketAddr),
     #[error("users: {0}")]
     Access(String),
     #[error("{0}; refusing to start (check it with `lattice audit verify`)")]
@@ -92,6 +100,10 @@ pub struct ServerConfig {
     pub engine: Config,
     /// How the process is confined, reported by `/api/health`.
     pub sandbox: Option<lattice_sandbox::Report>,
+    /// Serve TLS (and optionally require client certificates).
+    pub tls: Option<tls::Tls>,
+    /// Allow plain HTTP on a non-loopback address (behind a TLS-terminating proxy).
+    pub allow_plain_http: bool,
 }
 
 pub struct AppState {
@@ -104,6 +116,7 @@ pub struct AppState {
     pub(crate) loopback_only: bool,
     pub(crate) access: access::Access,
     pub(crate) audit: audit::AuditLog,
+    tls: Option<tls::TlsInfo>,
 }
 
 /// A JSON error body: `{"error": "..."}`.
@@ -146,6 +159,19 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
     if !loopback_only && !access.requires_credentials() {
         return Err(ServerError::TokenRequired(config.bind));
     }
+    if !loopback_only && config.tls.is_none() && !config.allow_plain_http {
+        return Err(ServerError::PlainHttp(config.bind));
+    }
+    if access.pins_certificates()
+        && !config
+            .tls
+            .as_ref()
+            .is_some_and(|tls| tls.info.client_certificates)
+    {
+        return Err(ServerError::Access(
+            "users are identified by client certificates, but no client CA is configured".into(),
+        ));
+    }
     let mut roots = Vec::new();
     for (name, path) in config.roots {
         let invalid = |reason: &str| ServerError::Root {
@@ -175,6 +201,7 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
         loopback_only,
         access,
         audit,
+        tls: config.tls.map(|tls| tls.info),
     });
 
     let api = Router::new()
@@ -255,17 +282,25 @@ pub async fn serve_on(
     config: ServerConfig,
 ) -> Result<(), ServerError> {
     let bind = config.bind;
+    let transport = config.tls.clone();
     let router = app(config)?;
-    tracing::info!(%bind, "LATTICE server listening");
-    axum::serve(
-        listener,
-        router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
+    tracing::info!(%bind, tls = transport.is_some(), "LATTICE server listening");
+    let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
-    })
-    .await
-    .map_err(ServerError::Serve)
+    };
+    match transport {
+        Some(transport) => {
+            tls::serve(listener, router, &transport, shutdown).await;
+            Ok(())
+        }
+        None => axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown)
+        .await
+        .map_err(ServerError::Serve),
+    }
 }
 
 fn now() -> (i64, String) {
@@ -293,6 +328,8 @@ struct Health {
     sandbox: Option<lattice_sandbox::Report>,
     /// Whether callers must present credentials.
     authentication: bool,
+    /// Transport security; absent when serving plain HTTP.
+    tls: Option<tls::TlsInfo>,
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
@@ -309,6 +346,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         active_scans: state.store.active().await,
         sandbox: state.sandbox.clone(),
         authentication: state.access.requires_credentials(),
+        tls: state.tls.clone(),
     })
 }
 

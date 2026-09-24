@@ -304,6 +304,7 @@ export interface Health {
   qDay: [number, number];
   activeScans: number;
   authentication?: boolean;
+  tls?: { protocol: string; keyExchange: string[]; clientCertificates: boolean } | null;
   sandbox?: {
     mode: 'off' | 'best-effort' | 'required';
     filesystem: { state: 'enforced' | 'partial' | 'unavailable' | 'off'; detail?: string };

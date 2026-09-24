@@ -76,8 +76,9 @@ enum Command {
     Serve(ServeArgs),
     /// Show what the sandbox enforces on this machine, by attempting forbidden operations.
     SandboxCheck(SandboxCheckArgs),
-    /// Issue an API token for a named user with a role.
-    Token(TokenArgs),
+    /// Manage the users who may call the server.
+    #[command(subcommand)]
+    User(UserCommand),
     /// Work with the server's audit log.
     #[command(subcommand)]
     Audit(AuditCommand),
@@ -98,8 +99,14 @@ struct AuditVerifyArgs {
     file: PathBuf,
 }
 
+#[derive(Debug, Subcommand)]
+enum UserCommand {
+    /// Add a user: issue a bearer token, or pin a client certificate for mutual TLS.
+    Add(UserAddArgs),
+}
+
 #[derive(Debug, Args)]
-struct TokenArgs {
+struct UserAddArgs {
     /// User name recorded in the audit log.
     #[arg(long)]
     name: String,
@@ -108,7 +115,12 @@ struct TokenArgs {
     #[arg(long, value_parser = parse_role)]
     role: lattice_server::Role,
 
-    /// Append the entry to this users file (created with owner-only permissions).
+    /// Identify the user by this client certificate (PEM) instead of issuing a token.
+    #[arg(long)]
+    certificate: Option<PathBuf>,
+
+    /// Append the entry to this users file (created with owner-only permissions); without it
+    /// the entry is printed.
     #[arg(long)]
     users: Option<PathBuf>,
 }
@@ -392,13 +404,29 @@ struct ServeArgs {
     #[arg(long = "root", value_name = "NAME=PATH", required = true, value_parser = parse_root)]
     roots: Vec<(String, PathBuf)>,
 
-    /// Users file: named users, their roles and token digests (see `lattice token`).
+    /// Users file: named users, their roles and token digests (see `lattice user add`).
     #[arg(long, env = "LATTICE_USERS")]
     users: Option<PathBuf>,
 
     /// A single admin bearer token, for deployments without a users file.
     #[arg(long, env = "LATTICE_TOKEN", hide_env_values = true)]
     token: Option<String>,
+
+    /// Serve TLS 1.3 (hybrid post-quantum key exchange) with this certificate chain (PEM).
+    #[arg(long, env = "LATTICE_TLS_CERT", requires = "tls_key")]
+    tls_cert: Option<PathBuf>,
+
+    /// Private key for --tls-cert (PEM).
+    #[arg(long, env = "LATTICE_TLS_KEY", requires = "tls_cert")]
+    tls_key: Option<PathBuf>,
+
+    /// Require client certificates chaining to this CA (PEM): mutual TLS.
+    #[arg(long, env = "LATTICE_CLIENT_CA", requires = "tls_cert")]
+    client_ca: Option<PathBuf>,
+
+    /// Serve plain HTTP on a non-loopback address; only behind a TLS-terminating proxy.
+    #[arg(long)]
+    allow_plain_http: bool,
 
     /// Where scan history and artefacts are kept.
     #[arg(long, default_value = ".lattice")]
@@ -484,7 +512,7 @@ fn main() -> ExitCode {
         Command::Keygen(args) => keygen(args).map(|()| EXIT_OK),
         Command::Sign(args) => sign(args).map(|()| EXIT_OK),
         Command::Verify(args) => verify(args, sandbox),
-        Command::Token(args) => token(args).map(|()| EXIT_OK),
+        Command::User(UserCommand::Add(args)) => user_add(args).map(|()| EXIT_OK),
         Command::Audit(AuditCommand::Verify(args)) => audit_verify(args, sandbox),
         Command::Report(args) => report(args, sandbox),
         Command::Validate(args) => validate(args, sandbox),
@@ -1059,15 +1087,33 @@ fn report(args: ReportArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     Ok(EXIT_OK)
 }
 
-fn token(args: TokenArgs) -> Result<()> {
-    let (token, user) =
-        lattice_server::access::issue(&args.name, args.role).map_err(anyhow::Error::msg)?;
-    let entry = format!(
-        "[[user]]\nname = {:?}\nrole = {:?}\ntoken_blake3 = {:?}\n",
+fn user_add(args: UserAddArgs) -> Result<()> {
+    let (token, user) = match &args.certificate {
+        Some(path) => {
+            let pem = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+            let der = lattice_server::tls::first_certificate(&pem)
+                .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+            let user = lattice_server::access::pin_certificate(&args.name, args.role, &der)
+                .map_err(anyhow::Error::msg)?;
+            (None, user)
+        }
+        None => {
+            let (token, user) =
+                lattice_server::access::issue(&args.name, args.role).map_err(anyhow::Error::msg)?;
+            (Some(token), user)
+        }
+    };
+    let mut entry = format!(
+        "[[user]]\nname = {:?}\nrole = {:?}\n",
         user.name,
-        user.role.as_str(),
-        user.token_blake3
+        user.role.as_str()
     );
+    if let Some(digest) = &user.token_blake3 {
+        entry.push_str(&format!("token_blake3 = {digest:?}\n"));
+    }
+    if let Some(fingerprint) = &user.certificate_sha256 {
+        entry.push_str(&format!("certificate_sha256 = {fingerprint:?}\n"));
+    }
     match &args.users {
         Some(path) => {
             if path.exists() {
@@ -1098,8 +1144,10 @@ fn token(args: TokenArgs) -> Result<()> {
             print!("{entry}");
         }
     }
-    eprintln!("token for {} (shown once, store it securely):", user.name);
-    println!("{token}");
+    if let Some(token) = token {
+        eprintln!("token for {} (shown once, store it securely):", user.name);
+        println!("{token}");
+    }
     Ok(())
 }
 
@@ -1178,11 +1226,31 @@ fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?,
         None => Vec::new(),
     };
+    // certificate, key and client CA are read before confinement too
+    let tls = match (&args.tls_cert, &args.tls_key) {
+        (Some(certificate), Some(key)) => {
+            let read =
+                |path: &Path| fs::read(path).with_context(|| format!("reading {}", path.display()));
+            let client_ca = args.client_ca.as_deref().map(read).transpose()?;
+            Some(
+                lattice_server::tls::configure(
+                    &read(certificate)?,
+                    &read(key)?,
+                    client_ca.as_deref(),
+                )
+                .map_err(anyhow::Error::msg)?,
+            )
+        }
+        _ => None,
+    };
+    let scheme = if tls.is_some() { "https" } else { "http" };
     let mut config = lattice_server::ServerConfig {
         bind: args.bind,
         roots: args.roots,
         token: args.token,
         users,
+        tls,
+        allow_plain_http: args.allow_plain_http,
         data_dir: Some(args.data_dir.clone()),
         ui_dir: ui,
         engine,
@@ -1213,7 +1281,7 @@ fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
         }
         let report = confine(sandbox, &read, &write)?;
         println!(
-            "LATTICE cockpit on http://{} (sandbox: {})",
+            "LATTICE cockpit on {scheme}://{} (sandbox: {})",
             config.bind,
             report.summary()
         );

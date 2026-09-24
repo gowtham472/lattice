@@ -168,7 +168,20 @@ embedded fonts, WinAnsi text only (other characters get ASCII equivalents).
 
 ---
 
-## 11. Build decisions as implemented
+## 11. Server TLS: rustls with aws-lc-rs, TLS 1.3 only
+
+**Chosen: rustls 0.23 with the aws-lc-rs provider, TLS 1.3 only, X25519MLKEM768 preferred.
+Rejected: the ring provider, OpenSSL bindings, TLS only in a reverse proxy.**
+
+A tool that tells an estate to deploy hybrid ML-KEM key exchange should use it for its own
+traffic. rustls offers X25519MLKEM768 only through aws-lc-rs (ring has no ML-KEM); aws-lc-rs is
+also FIPS-validated. It brings a C build, which compiles cleanly for the static musl releases
+through zig. OpenSSL bindings would add a dynamic system dependency to a static binary. Leaving
+TLS to a proxy was the previous state; it keeps bearer tokens in the clear between proxy and
+server and cannot carry client-certificate identity into the audit log. TLS 1.2 is not offered:
+every client that can use the cockpit supports 1.3, and 1.2 cannot negotiate the hybrid group.
+
+## 12. Build decisions as implemented
 
 | Question | Decision | Reason |
 |----------|----------|--------|

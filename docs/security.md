@@ -134,9 +134,10 @@ analyses (see [decisions.md §9](decisions.md)).
 
 ## 8. The cockpit and API
 
-- Binds **127.0.0.1** by default; binding any other address requires credentials. *Enforced.*
+- Binds **127.0.0.1** by default; binding any other address requires credentials and TLS.
+  *Enforced.*
 - **Named users with roles.** A users file lists each user, a role and the BLAKE3 digest of the
-  user's bearer token (the file holds no secrets; `lattice token` issues a random 256-bit token
+  user's bearer token (the file holds no secrets; `lattice user add` issues a random 256-bit token
   and its entry, owner-only). *viewer* reads scans, reports, CBOMs, graphs and PDFs; *operator*
   also browses roots and starts scans; *admin* also reads the audit log. A missing or unknown
   token is refused with 401, too weak a role with 403. Tokens are looked up by digest, so timing
@@ -156,7 +157,16 @@ analyses (see [decisions.md §9](decisions.md)).
   on tampering, naming the line). Scans record who started them. The chain detects edits,
   deletions and reordering; against wholesale replacement, ship the log or its head hash off the
   host. *Enforced.*
-- mTLS and TLS termination in the server. *Planned*; terminate TLS in a reverse proxy meanwhile.
+- **TLS 1.3 only, post-quantum first.** With `--tls-cert` and `--tls-key` the server speaks
+  TLS 1.3 alone (rustls with aws-lc-rs), offering the hybrid X25519MLKEM768 key exchange ahead of
+  X25519 and the NIST curves, so recorded sessions with the cockpit resist harvest-now-decrypt-
+  later. *Enforced* (tested with rustls and with OpenSSL 3.5, which negotiates X25519MLKEM768).
+- **Mutual TLS.** With `--client-ca` every connection must present a certificate chaining to that
+  CA; the certificate's SHA-256 fingerprint is pinned to a user in the users file
+  (`lattice user add --certificate`). A token naming a different user on the same connection is
+  refused as ambiguous. *Enforced.*
+- **No bearer tokens in the clear.** A non-loopback address is served only over TLS, unless the
+  operator passes `--allow-plain-http` for a TLS-terminating proxy in front. *Enforced.*
 
 ---
 
