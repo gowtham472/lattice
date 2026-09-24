@@ -68,6 +68,7 @@ Each phase is one commit in the history.
     OpenSSL for, through kernel uprobes, ignoring OpenSSL's own setup enumeration.
 20. **Go tracing**: Go programs, stripped or not, found automatically; key sizes and the TLS
     group each handshake negotiated.
+21. **Live progress**: scans stream their progress to the cockpit and the terminal.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -81,7 +82,6 @@ In order of value to an operator:
 1. **Tracing BoringSSL, rustls and the JVM**: statically linked TLS stacks without Go's
    function table, and the JCA providers of a running JVM.
 2. **Windows and macOS builds**, with a platform sandbox for each.
-3. **Live scan progress** pushed to the cockpit instead of polled.
 
 ---
 

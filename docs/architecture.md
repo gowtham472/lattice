@@ -348,6 +348,12 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   recording starts are found through `/proc/*/exe`; only the links are read before confinement,
   and every ELF file (hostile ones included) is parsed inside the sandbox, by a parser that is
   fuzzed. A probe the kernel cannot arm is skipped, never allowed to stop the others.
+- **Progress.** A scan carries live counters (phase; files and archives done out of total;
+  bytes), updated by the walker, the collectors and the engine from any thread. The CLI redraws
+  one line on stderr when it is a terminal; the server streams them as server-sent events
+  (`GET /api/scans/{id}/events`: `progress` events, then one `end` event with the final record),
+  and includes a snapshot in scan records. The cockpit reads the stream with `fetch`, so the
+  bearer token applies as everywhere else, instead of polling.
 - **Key custody.** A key in an HSM, smart card, TPM or cloud key service never appears as a file,
   but the configuration that uses it names it. The config collector finds PKCS#11 URIs (RFC 7512,
   dropping the query where `pin-value` lives), OpenSSL `engine:` and TPM persistent-handle
@@ -396,5 +402,4 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 | Runtime tracing of BoringSSL, rustls and the JVM | Planned; OpenSSL and Go are traced today, captures cover the rest |
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
-| Live scan progress over WebSocket | Not built; the cockpit polls |
 | Windows and macOS builds | Not built; the sandbox is Linux-only |

@@ -269,6 +269,17 @@ export interface ScanMeta {
   summary?: Summary;
   failures: number;
   requestedBy?: string;
+  /** Live counters while queued or running. */
+  progress?: ScanProgress;
+}
+
+export interface ScanProgress {
+  phase: 'queued' | 'listing' | 'collecting' | 'analysing' | 'rendering' | 'done';
+  filesTotal: number;
+  filesDone: number;
+  archivesTotal: number;
+  archivesDone: number;
+  bytesDone: number;
 }
 
 export type Role = 'viewer' | 'operator' | 'admin';

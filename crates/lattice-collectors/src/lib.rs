@@ -66,6 +66,94 @@ pub struct ScanOptions {
     pub archive_timeout: Duration,
     /// Incremental-scan cache, opened before the process is confined.
     pub cache: Option<std::sync::Arc<cache::Cache>>,
+    /// Live counters for whoever reports the scan while it runs.
+    pub progress: Option<std::sync::Arc<Progress>>,
+}
+
+/// Where a scan is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Phase {
+    Queued,
+    Listing,
+    Collecting,
+    Analysing,
+    Rendering,
+    Done,
+}
+
+impl Phase {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Listing,
+            2 => Self::Collecting,
+            3 => Self::Analysing,
+            4 => Self::Rendering,
+            5 => Self::Done,
+            _ => Self::Queued,
+        }
+    }
+}
+
+/// Live counters of a scan in progress. Updated by the walker, the collectors and the engine
+/// from many threads; read by the CLI's progress line and the server's event stream.
+#[derive(Debug, Default)]
+pub struct Progress {
+    phase: std::sync::atomic::AtomicU8,
+    files_total: std::sync::atomic::AtomicU64,
+    files_done: std::sync::atomic::AtomicU64,
+    archives_total: std::sync::atomic::AtomicU64,
+    archives_done: std::sync::atomic::AtomicU64,
+    bytes_done: std::sync::atomic::AtomicU64,
+}
+
+/// A consistent-enough view of [`Progress`] for display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressSnapshot {
+    pub phase: Phase,
+    pub files_total: u64,
+    pub files_done: u64,
+    pub archives_total: u64,
+    pub archives_done: u64,
+    pub bytes_done: u64,
+}
+
+impl Progress {
+    pub fn set_phase(&self, phase: Phase) {
+        self.phase
+            .store(phase as u8, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> ProgressSnapshot {
+        use std::sync::atomic::Ordering::Relaxed;
+        ProgressSnapshot {
+            phase: Phase::from_u8(self.phase.load(Relaxed)),
+            files_total: self.files_total.load(Relaxed),
+            files_done: self.files_done.load(Relaxed),
+            archives_total: self.archives_total.load(Relaxed),
+            archives_done: self.archives_done.load(Relaxed),
+            bytes_done: self.bytes_done.load(Relaxed),
+        }
+    }
+
+    fn totals(&self, files: usize, archives: usize) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.files_total.store(files as u64, Relaxed);
+        self.archives_total.store(archives as u64, Relaxed);
+    }
+
+    fn file_done(&self, bytes: u64) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.files_done.fetch_add(1, Relaxed);
+        self.bytes_done.fetch_add(bytes, Relaxed);
+    }
+
+    fn archive_done(&self, bytes: u64) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.archives_done.fetch_add(1, Relaxed);
+        self.bytes_done.fetch_add(bytes, Relaxed);
+    }
 }
 
 impl Default for ScanOptions {
@@ -78,6 +166,7 @@ impl Default for ScanOptions {
             max_expanded_bytes: DEFAULT_MAX_EXPANDED_BYTES,
             archive_timeout: DEFAULT_ARCHIVE_TIMEOUT,
             cache: None,
+            progress: None,
         }
     }
 }
@@ -198,14 +287,28 @@ pub fn collect_target(
     collectors: &[Box<dyn Collector>],
     options: &ScanOptions,
 ) -> Result<CollectionResult, CollectorError> {
+    let progress = options.progress.as_deref();
+    if let Some(progress) = progress {
+        progress.set_phase(Phase::Listing);
+    }
     let listing = walk::list_files(target, options)?;
     let resolver =
         ComponentResolver::from_paths(listing.files.iter().map(|file| file.report_path.as_str()));
+    if let Some(progress) = progress {
+        progress.totals(listing.files.len(), listing.archives.len());
+        progress.set_phase(Phase::Collecting);
+    }
 
     let mut per_file: Vec<(Findings, Vec<CollectionFailure>, ScanStats)> = listing
         .files
         .par_iter()
-        .map(|file| scan_file(file, &resolver, collectors, options))
+        .map(|file| {
+            let scanned = scan_file(file, &resolver, collectors, options);
+            if let Some(progress) = progress {
+                progress.file_done(scanned.2.bytes_scanned);
+            }
+            scanned
+        })
         .collect();
     // images, tarballs and captures are streamed by their own scanners
     per_file.extend(
@@ -214,7 +317,7 @@ pub fn collect_target(
             .par_iter()
             .map(|file| {
                 let component = resolver.component_of(&file.report_path);
-                if capture::is_capture(&file.report_path) {
+                let scanned = if capture::is_capture(&file.report_path) {
                     capture::scan_capture(&file.path, &file.report_path, &component, options)
                 } else {
                     container::scan_archive(
@@ -224,7 +327,11 @@ pub fn collect_target(
                         collectors,
                         options,
                     )
+                };
+                if let Some(progress) = progress {
+                    progress.archive_done(scanned.2.bytes_scanned);
                 }
+                scanned
             })
             .collect::<Vec<_>>(),
     );

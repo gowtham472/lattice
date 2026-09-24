@@ -686,7 +686,15 @@ fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     }
     let confinement = confine(sandbox, &[&args.target], &outputs)?;
 
-    let outcome = lattice_engine::run(&args.target, &config)?;
+    let mut config = config;
+    let ticker = (!args.quiet && std::io::IsTerminal::is_terminal(&std::io::stderr()))
+        .then(|| progress_line(&mut config));
+    let outcome = lattice_engine::run(&args.target, &config);
+    if let Some((stop, thread)) = ticker {
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = thread.join();
+    }
+    let outcome = outcome?;
     let cbom = render(&outcome.cbom);
     if to_stdout {
         std::io::stdout()
@@ -743,6 +751,41 @@ fn scan(args: ScanArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
         }
     }
     Ok(EXIT_OK)
+}
+
+/// A progress line on stderr while a scan runs, redrawn in place and erased at the end.
+fn progress_line(
+    config: &mut Config,
+) -> (
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    std::thread::JoinHandle<()>,
+) {
+    let progress = std::sync::Arc::new(lattice_collectors::Progress::default());
+    config.scan.progress = Some(progress.clone());
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = stop.clone();
+    let thread = std::thread::spawn(move || {
+        let mut stderr = std::io::stderr();
+        while !done.load(std::sync::atomic::Ordering::Relaxed) {
+            let now = progress.snapshot();
+            let line = match now.phase {
+                lattice_collectors::Phase::Collecting => format!(
+                    "collecting  {} / {} files, {} archives  ({:.1} MB)",
+                    now.files_done,
+                    now.files_total,
+                    now.archives_total,
+                    now.bytes_done as f64 / 1e6
+                ),
+                phase => format!("{phase:?}").to_lowercase(),
+            };
+            let _ = write!(stderr, "\r\x1b[2K{line}");
+            let _ = stderr.flush();
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        let _ = write!(stderr, "\r\x1b[2K");
+        let _ = stderr.flush();
+    });
+    (stop, thread)
 }
 
 fn print_summary(report: &Report, top: usize) {

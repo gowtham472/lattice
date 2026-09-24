@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ApiError, api, setToken } from './api';
+import { ApiError, api, followScan, setToken } from './api';
 import type { AssetReport, Graph, Health, Principal, Report, ScanMeta } from './types';
 import { Icon, Logo } from './ui';
 import { Overview } from './views/Overview';
@@ -65,12 +65,26 @@ export function App() {
     void refreshScans();
   }, [refreshScans, handle]);
 
-  // poll while anything is queued or running
+  // follow every scan that is queued or running: the server pushes its progress
+  const active = scans
+    .filter((s) => s.status === 'queued' || s.status === 'running')
+    .map((s) => s.id)
+    .join(',');
   useEffect(() => {
-    if (!scans.some((s) => s.status === 'queued' || s.status === 'running')) return;
-    const timer = setInterval(() => void refreshScans(), 1500);
-    return () => clearInterval(timer);
-  }, [scans, refreshScans]);
+    if (!active) return;
+    const controller = new AbortController();
+    const replace = (meta: ScanMeta) => setScans((list) => list.map((s) => (s.id === meta.id ? meta : s)));
+    for (const id of active.split(',')) {
+      followScan(id, replace, controller.signal)
+        .then((final) => {
+          if (final) replace(final);
+        })
+        .catch((e: unknown) => {
+          if (!controller.signal.aborted) handle(e);
+        });
+    }
+    return () => controller.abort();
+  }, [active, handle]);
 
   const current = scans.find((s) => s.id === scanId) ?? null;
   const ready = current?.status === 'done';

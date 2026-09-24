@@ -948,3 +948,61 @@ fn certificate_users_need_a_client_ca_and_plain_http_stays_local() {
         .is_err()
     );
 }
+
+#[tokio::test]
+async fn scan_progress_is_streamed_until_the_scan_ends() {
+    let f = fixture();
+    let server = app(config(&f, "127.0.0.1:7443", None)).unwrap();
+    let (status, queued, _) = call(
+        &server,
+        "POST",
+        "/api/scans",
+        Some(json!({"root": "estate", "path": ""})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let id = queued["id"].as_str().unwrap().to_owned();
+
+    let request = Request::builder()
+        .uri(format!("/api/scans/{id}/events"))
+        .header("host", "localhost:7443")
+        .body(Body::empty())
+        .unwrap();
+    let response = server.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "text/event-stream"
+    );
+    // the body ends when the scan does
+    let body = tokio::time::timeout(Duration::from_secs(60), response.into_body().collect())
+        .await
+        .expect("the stream closes once the scan ends")
+        .unwrap()
+        .to_bytes();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    let events: Vec<(&str, Value)> = text
+        .split("\n\n")
+        .filter_map(|block| {
+            let name = block.lines().find_map(|l| l.strip_prefix("event: "))?;
+            let data = block.lines().find_map(|l| l.strip_prefix("data: "))?;
+            Some((name, serde_json::from_str(data).unwrap()))
+        })
+        .collect();
+    let (last, final_meta) = events.last().unwrap();
+    assert_eq!(*last, "end");
+    assert_eq!(final_meta["status"], "done");
+    assert!(
+        final_meta.get("progress").is_none(),
+        "finished scans carry no live counters"
+    );
+    assert!(
+        events[..events.len() - 1]
+            .iter()
+            .all(|(name, _)| *name == "progress")
+    );
+
+    let (status, _) = get(&server, "/api/scans/nope/events").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

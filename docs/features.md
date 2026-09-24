@@ -83,7 +83,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Compare two scans | Delivered | interactive GUI |
 | Scan launcher confined to operator-declared roots | Delivered | interactive GUI |
 | Dark and light themes; works at phone width | Delivered | interactive GUI |
-| Live scan progress (push) | Planned; status is polled today | interactive GUI |
+| Live scan progress pushed to the cockpit (server-sent events) and shown on the terminal | Delivered | interactive GUI |
 
 ---
 

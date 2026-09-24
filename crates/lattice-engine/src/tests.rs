@@ -383,3 +383,28 @@ fn captured_traffic_confirms_the_listener_that_serves_it() {
         (Some("3.0.13"), false)
     );
 }
+
+#[test]
+fn progress_counts_every_file_and_ends_done() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("app")).unwrap();
+    for i in 0..5 {
+        fs::write(
+            dir.path().join(format!("app/m{i}.py")),
+            "import hashlib
+hashlib.md5(b'x')
+",
+        )
+        .unwrap();
+    }
+    let progress = std::sync::Arc::new(lattice_collectors::Progress::default());
+    let mut config = config();
+    config.scan.progress = Some(progress.clone());
+    assert_eq!(progress.snapshot().phase, lattice_collectors::Phase::Queued);
+    run(dir.path(), &config).unwrap();
+    let done = progress.snapshot();
+    assert_eq!(done.phase, lattice_collectors::Phase::Done);
+    assert_eq!(done.files_total, 5);
+    assert_eq!(done.files_done, 5);
+    assert!(done.bytes_done > 0);
+}

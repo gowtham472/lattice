@@ -9,11 +9,13 @@ description = "LATTICE HTTP API and cockpit host"
 [dependencies]
 axum.workspace = true
 blake3.workspace = true
+futures-util.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 lattice-cbom = { path = "../lattice-cbom" }
+lattice-collectors = { path = "../lattice-collectors" }
 lattice-core = { path = "../lattice-core" }
 lattice-engine = { path = "../lattice-engine" }
 lattice-report = { path = "../lattice-report" }

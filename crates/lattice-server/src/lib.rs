@@ -7,7 +7,8 @@
 //! GET  /api/roots/{root}/entries?path=     sub-directories, to pick a target      operator
 //! POST /api/scans                          {root, path, subject?, subjectVersion?} → 202  operator
 //! GET  /api/scans                          all scans, newest first
-//! GET  /api/scans/{id}                     one scan's status and summary
+//! GET  /api/scans/{id}                     one scan's status, progress and summary
+//! GET  /api/scans/{id}/events              server-sent events: progress until the scan ends
 //! GET  /api/scans/{id}/report              explainable report
 //! GET  /api/scans/{id}/report.pdf          executive report
 //! GET  /api/scans/{id}/cbom[?download=1]   CycloneDX 1.6 CBOM
@@ -117,6 +118,9 @@ pub struct AppState {
     pub(crate) access: access::Access,
     pub(crate) audit: audit::AuditLog,
     tls: Option<tls::TlsInfo>,
+    /// Counters of scans that are queued or running.
+    progress:
+        tokio::sync::RwLock<std::collections::HashMap<String, Arc<lattice_collectors::Progress>>>,
 }
 
 /// A JSON error body: `{"error": "..."}`.
@@ -202,6 +206,7 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
         access,
         audit,
         tls: config.tls.map(|tls| tls.info),
+        progress: tokio::sync::RwLock::new(std::collections::HashMap::new()),
     });
 
     let api = Router::new()
@@ -212,6 +217,7 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
         .route("/roots/{root}/entries", get(entries))
         .route("/scans", get(scans_list).post(scans_create))
         .route("/scans/{id}", get(scan_get))
+        .route("/scans/{id}/events", get(scan_events))
         .route("/scans/{id}/report", get(scan_report))
         .route("/scans/{id}/report.pdf", get(scan_report_pdf))
         .route("/scans/{id}/cbom", get(scan_cbom))
@@ -532,12 +538,20 @@ async fn scans_create(
         summary: None,
         failures: 0,
         requested_by: Some(principal.name.clone()),
+        progress: None,
     };
     state.store.insert(meta.clone()).await;
 
+    let progress = Arc::new(lattice_collectors::Progress::default());
+    state
+        .progress
+        .write()
+        .await
+        .insert(id.clone(), progress.clone());
     let mut config = state.engine.stamped(timestamp);
     config.subject = Some(subject);
     config.subject_version = subject_version;
+    config.scan.progress = Some(progress);
     let task_state = state.clone();
     tokio::spawn(async move { run_scan(task_state, id, target, config).await });
     Ok((StatusCode::ACCEPTED, Json(meta)))
@@ -571,6 +585,7 @@ async fn run_scan(state: Arc<AppState>, id: String, target: PathBuf, config: Con
     .await;
     let elapsed = started.elapsed().as_millis() as u64;
     let finished = now().1;
+    state.progress.write().await.remove(&id);
     match result {
         Ok(Ok((artefacts, summary, failures))) => {
             tracing::info!(scan = %id, assets = summary.assets, elapsed_ms = elapsed, "scan finished");
@@ -609,7 +624,11 @@ fn to_json(value: &impl Serialize) -> Result<Vec<u8>, String> {
 }
 
 async fn scans_list(State(state): State<Arc<AppState>>) -> Json<Vec<ScanMeta>> {
-    Json(state.store.list().await)
+    let mut list = Vec::new();
+    for meta in state.store.list().await {
+        list.push(with_progress(&state, meta).await);
+    }
+    Json(list)
 }
 
 fn checked(id: &str) -> ApiResult<&str> {
@@ -620,16 +639,67 @@ fn checked(id: &str) -> ApiResult<&str> {
     }
 }
 
+/// A scan record with its live counters, while it has any.
+async fn with_progress(state: &AppState, mut meta: ScanMeta) -> ScanMeta {
+    meta.progress = state
+        .progress
+        .read()
+        .await
+        .get(&meta.id)
+        .map(|progress| progress.snapshot());
+    meta
+}
+
 async fn scan_get(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<ScanMeta>> {
-    state
+    let meta = state
         .store
         .meta(checked(&id)?)
         .await
-        .map(Json)
-        .ok_or_else(|| ApiError::not_found("scan"))
+        .ok_or_else(|| ApiError::not_found("scan"))?;
+    Ok(Json(with_progress(&state, meta).await))
+}
+
+/// How often the event stream reports progress.
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Server-sent events for one scan: `progress` events while it is queued or running, then one
+/// `end` event with its final status, after which the stream closes. The cockpit reads this with
+/// `fetch`, so the bearer token applies as for every other call.
+async fn scan_events(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResult<
+    axum::response::sse::Sse<
+        impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+    >,
+> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    let id = checked(&id)?.to_owned();
+    if state.store.meta(&id).await.is_none() {
+        return Err(ApiError::not_found("scan"));
+    }
+    let stream = futures_util::stream::unfold(
+        (state, id, 0u64, false),
+        |(state, id, sent, ended)| async move {
+            if ended {
+                return None;
+            }
+            if sent > 0 {
+                tokio::time::sleep(PROGRESS_INTERVAL).await;
+            }
+            let meta = with_progress(&state, state.store.meta(&id).await?).await;
+            let ended = matches!(meta.status, Status::Done | Status::Failed);
+            let event = Event::default()
+                .event(if ended { "end" } else { "progress" })
+                .json_data(&meta)
+                .unwrap_or_else(|_| Event::default().event("error"));
+            Some((Ok(event), (state, id, sent + 1, ended)))
+        },
+    );
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn artefacts(state: &AppState, id: &str) -> ApiResult<Arc<Artefacts>> {

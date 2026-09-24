@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 225 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 227 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -34,8 +34,8 @@ flowchart TD
 | `lattice-graph` | Crypto graph, entry-point reachability, exposure, data inheritance | 5 |
 | `lattice-risk` | Assessor (QB, threat, HNDL/TNFL index, CAS, Mosca range, tiers) and advisor (recommendations, FIPS 203/204 size deltas, roadmap waves, effort estimates, the plan against the timeline, custody-aware advice); property tests of the scoring invariants | 20 |
 | `lattice-cbom` | Strict CycloneDX 1.6 emitter, offline schema validation, detached ML-DSA-65 signing (CBOMs and arbitrary content) | 16 |
-| `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles; golden CBOM of the demo estate | 12 |
-| `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards, users and roles, hash-chained audit log, TLS 1.3 with X25519MLKEM768 and mutual TLS | 13 |
+| `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles, progress; golden CBOM of the demo estate | 13 |
+| `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards, users and roles, hash-chained audit log, TLS 1.3 with X25519MLKEM768 and mutual TLS, progress events | 14 |
 | `lattice-report` | Executive PDF: a deterministic PDF writer (standard fonts, exact metrics) and the report layout, rendered from the report JSON | 5 |
 | `lattice-tracer` | Runtime tracing: probe plan from ELF symbols and Go function tables, C and Go register ABIs, uprobe definitions, tracefs session with guaranteed cleanup, setup-window filtering, aggregation | 10 (+ tested as root) |
 | `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
@@ -85,6 +85,7 @@ flowchart TD
 | CI: tests, cockpit, fuzzing, OpenSSL 3.5.5 golden scan | Delivered |
 | Runtime tracing of OpenSSL calls on live hosts (`lattice trace`) | Delivered |
 | Runtime tracing of Go programs, stripped or not | Delivered |
+| Live scan progress (server-sent events, terminal) | Delivered |
 
 ## Usage
 

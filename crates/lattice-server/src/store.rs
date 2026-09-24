@@ -41,6 +41,9 @@ pub struct ScanMeta {
     /// The principal that started the scan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_by: Option<String>,
+    /// Live counters while the scan is queued or running; never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<lattice_collectors::ProgressSnapshot>,
 }
 
 /// A finished scan's artefacts.

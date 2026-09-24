@@ -157,6 +157,12 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
         failures = collected.failures.len(),
         "collection finished"
     );
+    let phase = |phase| {
+        if let Some(progress) = &config.scan.progress {
+            progress.set_phase(phase);
+        }
+    };
+    phase(lattice_collectors::Phase::Analysing);
     let mut findings = collected.findings;
     attribute_traffic(&mut findings.observations, &findings.functions);
 
@@ -258,6 +264,7 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
         q_day_latest: policy.q_day.latest_year,
     };
 
+    phase(lattice_collectors::Phase::Rendering);
     let cbom = {
         let assessed: Vec<AssessedAsset<'_>> = reports
             .iter()
@@ -324,10 +331,12 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
         roadmap: schedule,
         plan: migration_plan,
     };
+    let graph = graph.to_serializable();
+    phase(lattice_collectors::Phase::Done);
     Ok(Outcome {
         report,
         cbom,
-        graph: graph.to_serializable(),
+        graph,
     })
 }
 

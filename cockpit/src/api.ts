@@ -88,3 +88,31 @@ async function download(path: string, filename: string): Promise<void> {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/**
+ * Follows a scan's server-sent events until it ends. Read with fetch rather than EventSource,
+ * so the bearer token is sent as on every other call. Resolves with the final record.
+ */
+export async function followScan(id: string, onProgress: (meta: ScanMeta) => void, signal: AbortSignal): Promise<ScanMeta | null> {
+  const response = await request(`${scanPath(id)}/events`, { signal });
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const decoder = new TextDecoder();
+  let buffered = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return null;
+    buffered += decoder.decode(value, { stream: true });
+    let end: number;
+    while ((end = buffered.indexOf('\n\n')) >= 0) {
+      const block = buffered.slice(0, end);
+      buffered = buffered.slice(end + 2);
+      const name = block.match(/^event: (.*)$/m)?.[1];
+      const data = block.match(/^data: (.*)$/m)?.[1];
+      if (!data) continue;
+      const meta = JSON.parse(data) as ScanMeta;
+      if (name === 'end') return meta;
+      onProgress(meta);
+    }
+  }
+}

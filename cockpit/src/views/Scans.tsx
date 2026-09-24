@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { ScanMeta } from '../types';
+import type { ScanMeta, ScanProgress } from '../types';
 import { when } from '../format';
 import { Icon, Panel } from '../ui';
 
@@ -65,6 +65,7 @@ export function Scans({
                         {s.status}
                       </span>
                       {s.error && <div className="faint">{s.error}</div>}
+                      {s.progress && <ProgressBar progress={s.progress} />}
                     </td>
                     <td style={{ fontWeight: 600 }}>{s.subject}</td>
                     <td className="mono">
@@ -201,6 +202,27 @@ function Launcher({ onClose, onError, onStarted }: { onClose: () => void; onErro
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ProgressBar({ progress }: { progress: ScanProgress }) {
+  const total = progress.filesTotal + progress.archivesTotal;
+  const done = progress.filesDone + progress.archivesDone;
+  const collecting = progress.phase === 'collecting' && total > 0;
+  const share = collecting ? done / total : progress.phase === 'queued' || progress.phase === 'listing' ? 0 : 1;
+  const label =
+    progress.phase === 'collecting'
+      ? `${done.toLocaleString()} of ${total.toLocaleString()} files`
+      : progress.phase === 'queued'
+        ? 'waiting for a free slot'
+        : progress.phase;
+  return (
+    <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label="Scan progress">
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${Math.round(share * 100)}%` }} />
+      </div>
+      <span className="faint">{label}</span>
     </div>
   );
 }
