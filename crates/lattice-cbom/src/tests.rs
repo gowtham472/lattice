@@ -192,6 +192,8 @@ fn bom(assessed: &Assessed, timestamp: i64) -> Bom {
             context: &assessed.contexts[i],
             assessment: &assessed.assessments[i],
             recommendation: &assessed.recommendations[i],
+            effort: None,
+            due_year: None,
         })
         .collect();
     let libraries = [library()];
@@ -211,6 +213,7 @@ fn bom(assessed: &Assessed, timestamp: i64) -> Bom {
         },
         assets: &items,
         libraries: &libraries,
+        plan: None,
     })
 }
 

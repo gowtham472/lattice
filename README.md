@@ -60,7 +60,7 @@ data classes and their secrecy lifetimes.
 | `crates/lattice-collectors` | Source (9 languages), binary, PKI, configuration, container-image and packet-capture collectors; bounded, isolated |
 | `crates/lattice-classify` | Explainable data classification and secrecy lifetimes |
 | `crates/lattice-graph` | Entry point → function → crypto → data graph, reachability and exposure |
-| `crates/lattice-risk` | Quantum breakability, HNDL/TNFL index, crypto-agility, Mosca, priority, advisor, roadmap |
+| `crates/lattice-risk` | Quantum breakability, HNDL/TNFL index, crypto-agility, Mosca, priority, advisor, roadmap, effort and timeline |
 | `crates/lattice-cbom` | CycloneDX 1.6 emitter, schema validation, ML-DSA-65 signatures |
 | `crates/lattice-engine` | The pipeline and baseline comparison |
 | `crates/lattice-server` | HTTP API and cockpit host (axum) |

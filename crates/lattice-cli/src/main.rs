@@ -652,15 +652,30 @@ fn print_summary(report: &Report, top: usize) {
     if report.assets.len() > top {
         println!("... {} more in the report", report.assets.len() - top);
     }
-    let mut waves = [0usize; 5];
-    for item in &report.roadmap {
-        waves[usize::from(item.wave.min(4))] += 1;
-    }
+    let plan = &report.plan;
     println!();
     println!(
-        "roadmap: wave 1 {} | wave 2 {} | wave 3 {} | wave 4 {}",
-        waves[1], waves[2], waves[3], waves[4]
+        "roadmap: {} changes, {} person-weeks, against {}",
+        report.roadmap.len(),
+        plan.total_person_weeks,
+        plan.timeline
     );
+    for wave in &plan.waves {
+        let due = match (wave.due_year, wave.engineers_needed) {
+            _ if wave.overdue => format!("due {} - overdue", wave.due_year.unwrap_or_default()),
+            (Some(year), Some(engineers)) => {
+                format!("due {year} - {engineers} engineers full-time")
+            }
+            _ => "no deadline".into(),
+        };
+        println!(
+            "  {:<32} {:>3} items {:>7} pw   {}",
+            wave.name, wave.items, wave.person_weeks, due
+        );
+    }
+    if let Some(engineers) = plan.engineers_needed {
+        println!("  team to meet every deadline: {engineers} engineers full-time");
+    }
     for failure in report.failures.iter().take(5) {
         println!(
             "warning: {} ({}): {}",

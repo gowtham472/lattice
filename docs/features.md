@@ -51,7 +51,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | PQC and hybrid advisor (FIPS 203/204/205) with key-share and signature size changes | Delivered | (iv) |
 | Migration roadmap in four waves | Delivered | (iv) |
 | **CI gate**: fail a pipeline on new or worsened crypto against a (signed) baseline | Delivered | (iv) |
-| Effort estimate in person-weeks | Planned | (iv) |
+| Effort estimate in person-weeks per change, factor by factor (action, surface, agility, spread, data criticality) | Delivered | (iv) |
 
 ---
 
@@ -65,7 +65,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Comparison of two scans | Delivered | - |
 | Crypto graph export (JSON) | Delivered | - |
 | PDF executive report | Planned | standardised report |
-| Mapping to the India DST 2027–2029 critical-infrastructure timeline | Planned | - |
+| Roadmap scheduled against the India DST 2027–2029 critical-infrastructure timeline: due year per wave, the team size that meets every deadline, overdue waves flagged | Delivered | - |
 
 ---
 

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { AssetReport, Report } from '../types';
-import { THREAT_LABEL, assetTypeLabel, bytes, componentName, titleCase, where, years } from '../format';
+import { THREAT_LABEL, assetTypeLabel, bytes, componentName, titleCase, weeks, where, years } from '../format';
 import { Bar, Icon, TierBadge } from '../ui';
 
 export function AssetDrawer({ item, report, onClose, onOpen }: { item: AssetReport; report: Report; onClose: () => void; onOpen: (id: string) => void }) {
@@ -14,6 +14,7 @@ export function AssetDrawer({ item, report, onClose, onOpen }: { item: AssetRepo
   const m = a.mosca;
   const dependencies = (asset.dependsOn ?? []).map((id) => report.assets.find((x) => x.asset.id === id)).filter((x): x is AssetReport => Boolean(x));
   const dependents = report.assets.filter((x) => x.asset.dependsOn?.includes(asset.id));
+  const due = report.roadmap.find((x) => x.assetId === asset.id)?.dueYear;
 
   return (
     <>
@@ -44,6 +45,17 @@ export function AssetDrawer({ item, report, onClose, onOpen }: { item: AssetRepo
             <div style={{ marginTop: 6 }} className="mono">
               {bytes(r.sizeDelta.beforeBytes)} → {bytes(r.sizeDelta.afterBytes)}
               <span className="faint"> ({r.sizeDelta.basis})</span>
+            </div>
+          )}
+          {item.effort && (
+            <div style={{ marginTop: 6 }}>
+              <span className="mono">~{weeks(item.effort.personWeeks)}</span>
+              {due && <span className="faint"> · due {due} under {report.plan.timeline}</span>}
+              <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                {item.effort.factors
+                  .map((f) => (f.name === 'action' ? `${f.value} wk base (${f.reason})` : `×${f.value} ${f.reason}`))
+                  .join(' · ')}
+              </div>
             </div>
           )}
         </div>

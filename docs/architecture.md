@@ -144,6 +144,14 @@ Pure functions over the enriched graph. Deterministic, explainable, no learned m
   computed from the FIPS 203/204 tables.
 - **Roadmap**: four waves (urgent quick wins, urgent re-engineering, planned migration,
   opportunistic hygiene).
+- **Effort**: person-weeks per change = the action's base effort × the hardest surface it is
+  changed in × a crypto-agility penalty × the spread across files (logarithmic) × the criticality
+  of the data it protects. Every factor is reported with its reason, and every weight is in the
+  policy.
+- **Timeline**: the policy maps the waves onto a regulatory schedule (by default the India DST
+  2027–2029 window for critical information infrastructure: waves 1–3 due 2027, 2028, 2029). The
+  plan gives each wave's effort, the cumulative work due by its year, the full-time engineers that
+  work needs from the assessment year, and flags waves already overdue.
 - **CI gate**: compares two CBOMs by asset identity and tier.
 
 ---
@@ -260,7 +268,7 @@ the cockpit polls scan status.
 | Overview | Headline counts, the Mosca timeline (X + Y against the Q-day window per asset), risk by component, threat split, fix-first list |
 | Inventory | Filterable, sortable table; a drawer explains each asset: priority reasons, Mosca inputs, index terms, exposure path, data evidence, agility factors, occurrences |
 | Crypto graph | Entry points → functions by call depth → crypto → data classes, drawn in SVG, with path tracing |
-| Roadmap | The four migration waves |
+| Roadmap | The plan against the national timeline (effort, due year, engineers needed per wave) and the four migration waves |
 | Compare | Two scans, as the CI gate sees them |
 | Scans | History, and a launcher that browses the configured roots |
 

@@ -158,6 +158,35 @@ export interface AssetReport {
   context: AssetContext;
   assessment: Assessment;
   recommendation: Recommendation;
+  /** Absent when the asset is retained. */
+  effort?: Effort;
+}
+
+export interface Effort {
+  personWeeks: number;
+  factors: { name: 'action' | 'surface' | 'agility' | 'spread' | 'criticality'; value: number; reason: string }[];
+}
+
+export interface WavePlan {
+  wave: number;
+  name: string;
+  items: number;
+  personWeeks: number;
+  dueYear?: number;
+  cumulativePersonWeeks: number;
+  weeksAvailable?: number;
+  engineersNeeded?: number;
+  overdue: boolean;
+}
+
+export interface MigrationPlan {
+  timeline: string;
+  reference: string;
+  assessmentYear: number;
+  totalPersonWeeks: number;
+  waves: WavePlan[];
+  engineersNeeded?: number;
+  overdue: boolean;
 }
 
 export interface Summary {
@@ -181,6 +210,8 @@ export interface RoadmapItem {
   migrationYears: number;
   action: string;
   target: string;
+  effortPersonWeeks: number;
+  dueYear?: number;
 }
 
 export interface Report {
@@ -203,6 +234,7 @@ export interface Report {
   assets: AssetReport[];
   libraries: { component: string; name: string; version?: string; pqcCapable: boolean; basis: string }[];
   roadmap: RoadmapItem[];
+  plan: MigrationPlan;
 }
 
 export type GraphNode =

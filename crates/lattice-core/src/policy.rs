@@ -2,6 +2,7 @@
 //! `knowledge/policy.toml` (embedded, versioned, overridable by the operator).
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 const EMBEDDED_POLICY: &str = include_str!("../../../knowledge/policy.toml");
@@ -71,6 +72,74 @@ pub struct Defaults {
     pub criticality: Criticality,
 }
 
+/// Person-week weights for migration effort estimates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EffortPolicy {
+    /// Base person-weeks by recommended action.
+    pub action: BTreeMap<String, f64>,
+    /// Multiplier by surface (`source`, `binary`, ...); the largest present applies.
+    pub surface: BTreeMap<String, f64>,
+    pub agility_penalty: f64,
+    pub spread: f64,
+    pub criticality: BTreeMap<String, f64>,
+}
+
+impl Default for EffortPolicy {
+    fn default() -> Self {
+        let map =
+            |pairs: &[(&str, f64)]| pairs.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect();
+        Self {
+            action: map(&[
+                ("rotate", 0.5),
+                ("enable", 0.5),
+                ("remove", 0.5),
+                ("review", 0.5),
+                ("upgrade", 1.0),
+                ("replace", 2.0),
+            ]),
+            surface: map(&[
+                ("source", 1.5),
+                ("binary", 2.0),
+                ("container", 1.2),
+                ("certificate", 1.0),
+                ("config", 0.6),
+                ("cloud", 0.8),
+            ]),
+            agility_penalty: 2.0,
+            spread: 0.5,
+            criticality: map(&[
+                ("low", 1.0),
+                ("medium", 1.0),
+                ("high", 1.25),
+                ("critical", 1.5),
+            ]),
+        }
+    }
+}
+
+/// The deadline schedule the roadmap is measured against.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Timeline {
+    pub name: String,
+    pub reference: String,
+    /// Year by which roadmap wave `i + 1` must be complete. Later waves have no deadline.
+    pub wave_due: Vec<u16>,
+    pub working_weeks_per_year: f64,
+}
+
+impl Default for Timeline {
+    fn default() -> Self {
+        Self {
+            name: "India DST critical-infrastructure migration, 2027–2029".into(),
+            reference:
+                "DST Task Force, Implementation of a Quantum Safe Ecosystem in India (Feb 2026)"
+                    .into(),
+            wave_due: vec![2027, 2028, 2029],
+            working_weeks_per_year: 46.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataClass {
     pub id: String,
@@ -88,6 +157,11 @@ pub struct Policy {
     pub hndl: HndlPolicy,
     pub agility: AgilityWeights,
     pub defaults: Defaults,
+    /// Absent in policies written before effort estimates existed; the defaults apply.
+    #[serde(default)]
+    pub effort: EffortPolicy,
+    #[serde(default)]
+    pub timeline: Timeline,
     pub data_class: Vec<DataClass>,
 }
 
@@ -167,6 +241,31 @@ impl Policy {
                 "hndl.lifetime_cap_years must be positive".into(),
             ));
         }
+        let e = &self.effort;
+        let factors = e
+            .action
+            .values()
+            .chain(e.surface.values())
+            .chain(e.criticality.values())
+            .chain([&e.agility_penalty, &e.spread]);
+        for factor in factors {
+            if !factor.is_finite() || *factor < 0.0 || *factor > 1000.0 {
+                return Err(PolicyError::Inconsistent(format!(
+                    "effort factor {factor} is outside 0..=1000"
+                )));
+            }
+        }
+        let t = &self.timeline;
+        if !(1.0..=52.0).contains(&t.working_weeks_per_year) {
+            return Err(PolicyError::Inconsistent(
+                "timeline.working_weeks_per_year must be between 1 and 52".into(),
+            ));
+        }
+        if t.wave_due.windows(2).any(|w| w[1] < w[0]) {
+            return Err(PolicyError::Inconsistent(
+                "timeline.wave_due must not decrease from one wave to the next".into(),
+            ));
+        }
         Ok(())
     }
 }
@@ -185,6 +284,25 @@ mod tests {
                 .any(|class| class.id == "financial")
         );
         assert!(policy.q_day.earliest_year <= policy.q_day.latest_year);
+    }
+
+    #[test]
+    fn effort_and_timeline_default_when_absent_and_are_checked_when_present() {
+        let start = EMBEDDED_POLICY.find("[effort]").unwrap();
+        let end = EMBEDDED_POLICY.find("# Data classes.").unwrap();
+        let older = format!("{}{}", &EMBEDDED_POLICY[..start], &EMBEDDED_POLICY[end..]);
+        let policy = Policy::from_toml(&older).expect("a policy without the sections still loads");
+        assert_eq!(policy.timeline.wave_due, vec![2027, 2028, 2029]);
+        assert_eq!(policy.effort.action["replace"], 2.0);
+
+        let embedded = Policy::active();
+        assert_eq!(embedded.effort.surface, EffortPolicy::default().surface);
+        assert_eq!(embedded.timeline.wave_due, Timeline::default().wave_due);
+
+        let reversed = EMBEDDED_POLICY.replace("[2027, 2028, 2029]", "[2029, 2028]");
+        assert!(Policy::from_toml(&reversed).is_err());
+        let negative = EMBEDDED_POLICY.replace("spread = 0.5", "spread = -1.0");
+        assert!(Policy::from_toml(&negative).is_err());
     }
 
     #[test]

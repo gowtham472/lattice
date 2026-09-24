@@ -16,7 +16,9 @@ use lattice_collectors::{CollectionFailure, CollectorError, ScanOptions, ScanSta
 use lattice_core::policy::Policy;
 use lattice_core::{CryptoAsset, FunctionFact, LibraryFact, Registry};
 use lattice_graph::{AssetContext, CryptoGraph, GraphInput, GraphStats};
-use lattice_risk::advisor::{Recommendation, RoadmapItem, recommend, roadmap};
+use lattice_risk::advisor::{
+    Effort, MigrationPlan, Recommendation, RoadmapItem, estimate, plan, recommend, roadmap,
+};
 use lattice_risk::{Assessment, Assessor};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
@@ -90,6 +92,9 @@ pub struct AssetReport {
     pub context: AssetContext,
     pub assessment: Assessment,
     pub recommendation: Recommendation,
+    /// Person-weeks to carry out the recommendation; absent when the asset is retained.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Effort>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -126,6 +131,8 @@ pub struct Report {
     pub assets: Vec<AssetReport>,
     pub libraries: Vec<LibraryFact>,
     pub roadmap: Vec<RoadmapItem>,
+    /// The roadmap's effort and schedule against the policy's timeline.
+    pub plan: MigrationPlan,
 }
 
 pub struct Outcome {
@@ -195,21 +202,44 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
         }
         let assessment = assessor.assess(&asset, &context);
         let recommendation = recommend(&asset, &assessment, context.data.secrecy_lifetime_years);
+        let effort = estimate(
+            &asset,
+            &assessment,
+            &recommendation,
+            context.data.criticality,
+            policy,
+        );
         reports.push(AssetReport {
             name: asset.finding.display_name(),
             asset,
             context,
             assessment,
             recommendation,
+            effort,
         });
     }
 
-    let plan = roadmap(
+    let schedule = roadmap(
         &reports
             .iter()
-            .map(|r| (&r.asset, &r.assessment, &r.recommendation))
+            .map(|r| {
+                (
+                    &r.asset,
+                    &r.assessment,
+                    &r.recommendation,
+                    r.effort.as_ref(),
+                )
+            })
             .collect::<Vec<_>>(),
+        policy,
     );
+    let migration_plan = plan(&schedule, policy, config.assessment_year);
+    let due_year = |asset_id: &str| {
+        schedule
+            .iter()
+            .find(|item| item.asset_id == asset_id)
+            .and_then(|item| item.due_year)
+    };
 
     let subject = config
         .subject
@@ -236,6 +266,8 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
                 context: &r.context,
                 assessment: &r.assessment,
                 recommendation: &r.recommendation,
+                effort: r.effort.as_ref(),
+                due_year: due_year(&r.asset.id),
             })
             .collect();
         lattice_cbom::build(&BomInput {
@@ -254,6 +286,7 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
             },
             assets: &assessed,
             libraries: &findings.libraries,
+            plan: Some(&migration_plan),
         })
     };
     let summary = {
@@ -264,6 +297,8 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
                 context: &r.context,
                 assessment: &r.assessment,
                 recommendation: &r.recommendation,
+                effort: r.effort.as_ref(),
+                due_year: due_year(&r.asset.id),
             })
             .collect();
         Summary::of(&assessed)
@@ -286,7 +321,8 @@ pub fn run(target: &Path, config: &Config) -> Result<Outcome, EngineError> {
         failures: collected.failures,
         assets: reports,
         libraries: findings.libraries,
-        roadmap: plan,
+        roadmap: schedule,
+        plan: migration_plan,
     };
     Ok(Outcome {
         report,

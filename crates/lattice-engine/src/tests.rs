@@ -218,6 +218,17 @@ fn reports_are_ordered_by_priority_and_explain_every_score() {
     assert_eq!(report.summary.assets, report.assets.len());
     assert!(!report.roadmap.is_empty());
     assert!(report.roadmap.windows(2).all(|w| w[0].wave <= w[1].wave));
+    for asset in &report.assets {
+        assert_eq!(
+            asset.effort.is_some(),
+            asset.recommendation.action != "retain",
+            "every change, and only a change, has an effort: {}",
+            asset.name
+        );
+    }
+    let planned: f64 = report.roadmap.iter().map(|i| i.effort_person_weeks).sum();
+    assert!((report.plan.total_person_weeks - planned).abs() < 0.05);
+    assert!(report.plan.engineers_needed.is_some());
     assert_eq!(report.provenance.assessment_year, 2026);
     assert!(report.graph.entry_points >= 1);
 }

@@ -1,4 +1,5 @@
-//! Migration advice: what to replace each asset with, what it costs in bytes, and in what order.
+//! Migration advice: what to replace each asset with, what it costs in bytes and person-weeks,
+//! in what order, and whether the plan fits the regulatory timeline.
 //!
 //! Recommendations follow the asset's *role* (key exchange, signature, bulk encryption, hashing,
 //! protocol policy, stored keys) rather than just its algorithm, because the right replacement
@@ -6,10 +7,12 @@
 //! parameter sets in the knowledge base (FIPS 203/204 sizes), not quoted from memory.
 
 use crate::{Assessment, Tier};
+use lattice_core::policy::{Criticality, Policy};
 use lattice_core::{
-    CryptoAsset, Finding, MaterialType, Primitive, ProtocolKind, QuantumClass, Registry,
+    CryptoAsset, Finding, MaterialType, Primitive, ProtocolKind, QuantumClass, Registry, Surface,
 };
 use serde::Serialize;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +48,171 @@ pub struct RoadmapItem {
     pub migration_years: f64,
     pub action: String,
     pub target: String,
+    pub effort_person_weeks: f64,
+    /// Year the item's wave is due under the policy's timeline; absent for undated waves.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_year: Option<u16>,
+}
+
+/// Estimated person-weeks for one recommended change, with every factor that produced it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Effort {
+    pub person_weeks: f64,
+    pub factors: Vec<EffortFactor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffortFactor {
+    /// `action`, `surface`, `agility`, `spread` or `criticality`.
+    pub name: String,
+    /// Person-weeks for `action`, a multiplier for the rest.
+    pub value: f64,
+    pub reason: String,
+}
+
+/// One wave of the plan measured against the timeline.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WavePlan {
+    pub wave: u8,
+    pub name: String,
+    pub items: usize,
+    pub person_weeks: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_year: Option<u16>,
+    /// Person-weeks of this wave and every earlier one: the work that must be done by `due_year`.
+    pub cumulative_person_weeks: f64,
+    /// Working weeks from the start of the assessment year to the end of `due_year`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weeks_available: Option<f64>,
+    /// Full-time engineers needed to finish the cumulative work in the weeks available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engineers_needed: Option<f64>,
+    /// The due year has already passed and work remains.
+    pub overdue: bool,
+}
+
+/// The roadmap's cost and schedule against the policy's timeline.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationPlan {
+    pub timeline: String,
+    pub reference: String,
+    pub assessment_year: u16,
+    pub total_person_weeks: f64,
+    pub waves: Vec<WavePlan>,
+    /// The team that meets every dated wave: the largest `engineers_needed`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engineers_needed: Option<f64>,
+    pub overdue: bool,
+}
+
+const WAVE_NAMES: [&str; 4] = [
+    "Wave 1 · urgent quick wins",
+    "Wave 2 · urgent re-engineering",
+    "Wave 3 · planned migration",
+    "Wave 4 · opportunistic hygiene",
+];
+
+/// Rounds to `places` decimals, so reports stay readable and stable.
+fn round(value: f64, places: i32) -> f64 {
+    let scale = 10f64.powi(places);
+    (value * scale).round() / scale
+}
+
+/// Estimates the person-weeks of carrying out `recommendation` on `asset`: `None` when nothing
+/// is to be done. Deterministic: every input is in the asset, its assessment and the policy.
+pub fn estimate(
+    asset: &CryptoAsset,
+    assessment: &Assessment,
+    recommendation: &Recommendation,
+    criticality: Criticality,
+    policy: &Policy,
+) -> Option<Effort> {
+    if recommendation.action == "retain" {
+        return None;
+    }
+    let weights = &policy.effort;
+    let base = weights
+        .action
+        .get(&recommendation.action)
+        .copied()
+        .unwrap_or(1.0);
+
+    let surface = asset
+        .surfaces
+        .iter()
+        .filter(|surface| **surface != Surface::Runtime)
+        .filter_map(|surface| {
+            weights
+                .surface
+                .get(surface.as_str())
+                .map(|weight| (*weight, surface.as_str()))
+        })
+        .max_by(|a, b| a.0.total_cmp(&b.0).then_with(|| b.1.cmp(a.1)));
+    let (surface_factor, surface_reason) = match surface {
+        Some((weight, name)) => (weight, format!("changed in {name}")),
+        None => (
+            1.0,
+            "seen only at runtime; changed where it is configured".into(),
+        ),
+    };
+
+    let agility = assessment.agility.score.min(100);
+    let agility_factor = 1.0 + f64::from(100 - agility) / 100.0 * weights.agility_penalty;
+
+    let files: BTreeSet<&str> = asset
+        .occurrences
+        .iter()
+        .filter(|occurrence| occurrence.surface != Surface::Runtime)
+        .map(|occurrence| occurrence.location.path.as_str())
+        .collect();
+    let file_count = files.len().max(1);
+    let spread_factor = 1.0 + weights.spread * (file_count as f64).ln();
+
+    let criticality_factor = weights
+        .criticality
+        .get(criticality.as_str())
+        .copied()
+        .unwrap_or(1.0);
+
+    let person_weeks = base * surface_factor * agility_factor * spread_factor * criticality_factor;
+    let factor = |name: &str, value: f64, reason: String| EffortFactor {
+        name: name.into(),
+        value: round(value, 2),
+        reason,
+    };
+    Some(Effort {
+        person_weeks: round(person_weeks, 1).max(0.1),
+        factors: vec![
+            factor(
+                "action",
+                base,
+                format!("{} one asset", recommendation.action),
+            ),
+            factor("surface", surface_factor, surface_reason),
+            factor(
+                "agility",
+                agility_factor,
+                format!("crypto-agility {agility}/100"),
+            ),
+            factor(
+                "spread",
+                spread_factor,
+                format!(
+                    "{file_count} file{}",
+                    if file_count == 1 { "" } else { "s" }
+                ),
+            ),
+            factor(
+                "criticality",
+                criticality_factor,
+                format!("protects {} data", criticality.as_str()),
+            ),
+        ],
+    })
 }
 
 /// Public key + ciphertext / key-share bytes of classical key establishment, for size deltas.
@@ -264,23 +432,34 @@ pub fn recommend(
     }
 }
 
+/// One assessed asset as the roadmap sees it: the asset, its assessment, the recommendation and
+/// the effort of carrying it out.
+pub type PlanInput<'a> = (
+    &'a CryptoAsset,
+    &'a Assessment,
+    &'a Recommendation,
+    Option<&'a Effort>,
+);
+
 /// Orders assessed assets into migration waves: urgent quick wins first (high priority, easy to
 /// change), then urgent hard changes, then the rest by priority. Retained assets are excluded.
-pub fn roadmap(items: &[(&CryptoAsset, &Assessment, &Recommendation)]) -> Vec<RoadmapItem> {
+///
+/// Each item carries its effort and the year its wave is due under the policy's timeline.
+pub fn roadmap(items: &[PlanInput<'_>], policy: &Policy) -> Vec<RoadmapItem> {
     let mut roadmap: Vec<RoadmapItem> = items
         .iter()
-        .filter(|(_, _, recommendation)| recommendation.action != "retain")
-        .map(|(asset, assessment, recommendation)| {
+        .filter(|(_, _, recommendation, _)| recommendation.action != "retain")
+        .map(|(asset, assessment, recommendation, effort)| {
             let urgent = assessment.tier >= Tier::High;
-            let (wave, wave_name) = match (urgent, assessment.agility.score >= 60) {
-                (true, true) => (1, "Wave 1 · urgent quick wins"),
-                (true, false) => (2, "Wave 2 · urgent re-engineering"),
-                (false, _) if assessment.tier == Tier::Medium => (3, "Wave 3 · planned migration"),
-                _ => (4, "Wave 4 · opportunistic hygiene"),
+            let wave: u8 = match (urgent, assessment.agility.score >= 60) {
+                (true, true) => 1,
+                (true, false) => 2,
+                (false, _) if assessment.tier == Tier::Medium => 3,
+                _ => 4,
             };
             RoadmapItem {
                 wave,
-                wave_name: wave_name.into(),
+                wave_name: WAVE_NAMES[usize::from(wave - 1)].into(),
                 asset_id: asset.id.clone(),
                 name: asset.finding.display_name(),
                 component: asset.component.clone(),
@@ -290,6 +469,8 @@ pub fn roadmap(items: &[(&CryptoAsset, &Assessment, &Recommendation)]) -> Vec<Ro
                 migration_years: assessment.mosca.y_years,
                 action: recommendation.action.clone(),
                 target: recommendation.target.clone(),
+                effort_person_weeks: effort.map_or(0.0, |effort| effort.person_weeks),
+                due_year: policy.timeline.wave_due.get(usize::from(wave - 1)).copied(),
             }
         })
         .collect();
@@ -301,4 +482,47 @@ pub fn roadmap(items: &[(&CryptoAsset, &Assessment, &Recommendation)]) -> Vec<Ro
             .then_with(|| a.asset_id.cmp(&b.asset_id))
     });
     roadmap
+}
+
+/// Measures the roadmap against the policy's timeline: effort per wave, and the team needed to
+/// finish each dated wave, together with everything before it, by its due year.
+pub fn plan(roadmap: &[RoadmapItem], policy: &Policy, assessment_year: u16) -> MigrationPlan {
+    let timeline = &policy.timeline;
+    let mut cumulative = 0.0;
+    let waves: Vec<WavePlan> = (1..=4u8)
+        .map(|wave| {
+            let items: Vec<&RoadmapItem> = roadmap.iter().filter(|i| i.wave == wave).collect();
+            let person_weeks: f64 = items.iter().map(|i| i.effort_person_weeks).sum();
+            cumulative += person_weeks;
+            let due_year = timeline.wave_due.get(usize::from(wave - 1)).copied();
+            let overdue = due_year.is_some_and(|due| due < assessment_year) && cumulative > 0.0;
+            let weeks_available = due_year
+                .filter(|due| *due >= assessment_year)
+                .map(|due| f64::from(due - assessment_year + 1) * timeline.working_weeks_per_year);
+            WavePlan {
+                wave,
+                name: WAVE_NAMES[usize::from(wave - 1)].into(),
+                items: items.len(),
+                person_weeks: round(person_weeks, 1),
+                due_year,
+                cumulative_person_weeks: round(cumulative, 1),
+                weeks_available,
+                engineers_needed: weeks_available.map(|weeks| round(cumulative / weeks, 1)),
+                overdue,
+            }
+        })
+        .collect();
+    let engineers_needed = waves
+        .iter()
+        .filter_map(|wave| wave.engineers_needed)
+        .max_by(f64::total_cmp);
+    MigrationPlan {
+        timeline: timeline.name.clone(),
+        reference: timeline.reference.clone(),
+        assessment_year,
+        total_person_weeks: round(cumulative, 1),
+        overdue: waves.iter().any(|wave| wave.overdue),
+        waves,
+        engineers_needed,
+    }
 }

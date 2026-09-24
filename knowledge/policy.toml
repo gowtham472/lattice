@@ -49,6 +49,32 @@ years_per_point = 0.04
 secrecy_lifetime_years = 5.0
 criticality = "medium"
 
+# Migration effort in person-weeks: engineering, testing and rollout of one recommended change.
+# effort = action × surface × agility × spread × criticality, each factor reported with the
+# estimate. Tune these to the organisation's own delivery history.
+[effort]
+# Base effort of one change, by the recommended action.
+action = { rotate = 0.5, enable = 0.5, remove = 0.5, review = 0.5, upgrade = 1.0, replace = 2.0 }
+# Multiplier for where the change is made; the hardest surface the asset appears on applies.
+# Runtime evidence alone changes nothing: the fix lands where the traffic is configured.
+surface = { source = 1.5, binary = 2.0, container = 1.2, certificate = 1.0, config = 0.6, cloud = 0.8 }
+# Hard-coded crypto costs more: × (1 + (100 − agility) / 100 × agility_penalty).
+agility_penalty = 2.0
+# Each extra file carrying the asset adds work, sublinearly: × (1 + spread × ln(files)).
+spread = 0.5
+# Validation and change control for what the asset protects.
+criticality = { low = 1.0, medium = 1.0, high = 1.25, critical = 1.5 }
+
+# The regulatory timeline the roadmap is scheduled against. The DST Task Force report
+# "Implementation of a Quantum Safe Ecosystem in India" (Feb 2026) sets 2027–2029 for migrating
+# Critical Information Infrastructure. `wave_due` is LATTICE's mapping of its roadmap waves onto
+# that window (the year each wave must be complete); wave 4 is opportunistic and has no deadline.
+[timeline]
+name = "India DST critical-infrastructure migration, 2027–2029"
+reference = "DST Task Force, Implementation of a Quantum Safe Ecosystem in India (Feb 2026)"
+wave_due = [2027, 2028, 2029]
+working_weeks_per_year = 46.0
+
 # Data classes. `terms` match whole identifier tokens: `cardNumber` → [card, number] matches
 # `card`. Lifetimes are how long disclosure would still cause harm.
 [[data_class]]

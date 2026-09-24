@@ -42,6 +42,10 @@ export function years(value: number): string {
   return `${Number.isInteger(value) ? value : value.toFixed(1)} y`;
 }
 
+export function weeks(value: number): string {
+  return `${value.toFixed(1)} person-week${value === 1 ? '' : 's'}`;
+}
+
 export function pct(value: number): string {
   return `${Math.round(value * 100)}%`;
 }

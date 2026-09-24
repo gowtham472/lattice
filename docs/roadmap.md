@@ -52,6 +52,8 @@ Each phase is one commit in the history.
     active knowledge; unchanged files are not parsed again and output stays byte-identical.
 12. **Assurance**: property tests for the scoring invariants, a golden CBOM of the demo estate,
     and `cargo-fuzz` targets for every parser of hostile input.
+13. **Effort and timeline**: person-weeks per change with every factor explained; the roadmap
+    scheduled against the India DST 2027–2029 timeline, with the team size that meets it.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -66,9 +68,8 @@ In order of value to an operator:
    read-only.
 2. **PDF executive report**: deterministic and signed.
 3. **Access control**: roles, an audit log and mTLS for multi-user deployments.
-4. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
-5. **HSM/TPM discovery** through PKCS#11.
-6. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
+4. **HSM/TPM discovery** through PKCS#11.
+5. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
 
 ---
 

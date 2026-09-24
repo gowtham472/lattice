@@ -1,5 +1,5 @@
 import type { Report, RoadmapItem } from '../types';
-import { componentName, years } from '../format';
+import { componentName, weeks, years } from '../format';
 import { Panel, TierBadge } from '../ui';
 
 const WAVES: { wave: number; title: string; description: string }[] = [
@@ -13,13 +13,54 @@ export function Roadmap({ report, onOpen }: { report: Report; onOpen: (id: strin
   const byWave = (wave: number) => report.roadmap.filter((item) => item.wave === wave);
   const retained = report.assets.length - report.roadmap.length;
   const effort = (items: RoadmapItem[]) => items.reduce((sum, item) => Math.max(sum, item.migrationYears), 0);
+  const plan = report.plan;
 
   return (
     <div className="grid">
+      <Panel title="Against the national timeline" hint={plan.reference}>
+        <div className={`callout ${plan.overdue ? 'danger' : ''}`}>
+          <strong>{plan.timeline}</strong>
+          <div className="muted" style={{ marginTop: 4 }}>
+            {weeks(plan.totalPersonWeeks)} of migration work across {report.roadmap.length} changes.{' '}
+            {plan.engineersNeeded !== undefined &&
+              `Meeting every deadline from ${plan.assessmentYear} takes ${plan.engineersNeeded} engineer${plan.engineersNeeded === 1 ? '' : 's'} full-time.`}
+            {plan.overdue && ' At least one deadline has already passed with work outstanding.'}
+          </div>
+        </div>
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Wave</th>
+              <th style={{ textAlign: 'right' }}>Items</th>
+              <th style={{ textAlign: 'right' }}>Person-weeks</th>
+              <th>Due</th>
+              <th style={{ textAlign: 'right' }}>Work by then</th>
+              <th style={{ textAlign: 'right' }}>Engineers</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.waves.map((wave) => (
+              <tr key={wave.wave} style={{ cursor: 'default' }}>
+                <td>{wave.name}</td>
+                <td style={{ textAlign: 'right' }}>{wave.items}</td>
+                <td style={{ textAlign: 'right' }} className="mono">{wave.personWeeks.toFixed(1)}</td>
+                <td style={wave.overdue ? { color: 'var(--critical)' } : undefined}>
+                  {wave.dueYear ? `${wave.dueYear}${wave.overdue ? ' · overdue' : ''}` : <span className="faint">no deadline</span>}
+                </td>
+                <td style={{ textAlign: 'right' }} className="mono">{wave.dueYear ? wave.cumulativePersonWeeks.toFixed(1) : ''}</td>
+                <td style={{ textAlign: 'right' }} className="mono">{wave.engineersNeeded ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </Panel>
       <Panel title="Migration roadmap" hint={`${report.roadmap.length} assets to change · ${retained} retained as they are`}>
         <div className="waves">
           {WAVES.map(({ wave, title, description }) => {
             const items = byWave(wave);
+            const due = plan.waves.find((w) => w.wave === wave)?.dueYear;
             return (
               <section className="wave" key={wave} aria-label={title}>
                 <header>
@@ -29,7 +70,8 @@ export function Roadmap({ report, onOpen }: { report: Report; onOpen: (id: strin
                   </span>
                   <span className="muted" style={{ fontSize: 12 }}>
                     {items.length} item{items.length === 1 ? '' : 's'}
-                    {items.length > 0 && ` · longest ${years(effort(items))}`}
+                    {items.length > 0 && ` · ${weeks(items.reduce((sum, item) => sum + item.effortPersonWeeks, 0))} · longest ${years(effort(items))}`}
+                    {due && ` · due ${due}`}
                   </span>
                 </header>
                 {items.map((item) => (
@@ -43,7 +85,7 @@ export function Roadmap({ report, onOpen }: { report: Report; onOpen: (id: strin
                       <span className="muted">{item.action} →</span> {item.target}
                     </span>
                     <span className="faint" style={{ fontSize: 12 }}>
-                      agility {item.agility}/100 · ~{years(item.migrationYears)} to migrate
+                      ~{weeks(item.effortPersonWeeks)} · agility {item.agility}/100 · ~{years(item.migrationYears)} to migrate
                     </span>
                   </button>
                 ))}

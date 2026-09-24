@@ -1,4 +1,4 @@
-use super::advisor::{recommend, roadmap};
+use super::advisor::{RoadmapItem, estimate, plan, recommend, roadmap};
 use super::*;
 use lattice_classify::Classifier;
 use lattice_core::{
@@ -464,15 +464,166 @@ fn roadmap_puts_urgent_quick_wins_first_and_skips_retained_assets() {
     let items: Vec<_> = assessments
         .iter()
         .zip(&recommendations)
-        .map(|((a, s), r)| (a, s, r))
+        .map(|((a, s), r)| (a, s, r, None))
         .collect();
-    let plan = roadmap(&items);
+    let plan = roadmap(&items, Policy::active());
     assert_eq!(plan.len(), 2, "the ML-KEM asset is retained, not planned");
     assert_eq!(
         plan[0].wave, 1,
         "configurable RSA-1024 is an urgent quick win"
     );
     assert_eq!(plan[1].wave, 2, "hard-coded RSA is urgent re-engineering");
+    assert_eq!(plan[0].due_year, Some(2027), "wave 1 falls due first");
+    assert_eq!(plan[1].due_year, Some(2028));
+}
+
+#[test]
+fn effort_grows_with_rigidity_and_is_explained_factor_by_factor() {
+    let rsa = |surface, style| {
+        let asset = single(observation(
+            surface,
+            algorithm(
+                "rsa",
+                Params {
+                    key_bits: Some(2048),
+                    ..Params::default()
+                },
+            ),
+            style,
+        ));
+        let assessment = assessor().assess(&asset, &context("financial", 1.0));
+        let recommendation = recommend(&asset, &assessment, 10.0);
+        let effort = estimate(
+            &asset,
+            &assessment,
+            &recommendation,
+            Criticality::Critical,
+            Policy::active(),
+        )
+        .expect("RSA is replaced, so it has an effort");
+        (assessment, effort)
+    };
+    let (config_assessment, config) = rsa(Surface::Config, None);
+    let (code_assessment, code) = rsa(
+        Surface::Source,
+        Some(usage(ApiStyle::Primitive, AlgorithmSource::Literal)),
+    );
+    assert!(code_assessment.agility.score < config_assessment.agility.score);
+    assert!(
+        code.person_weeks > config.person_weeks,
+        "hard-coded source ({}) costs more than configuration ({})",
+        code.person_weeks,
+        config.person_weeks
+    );
+
+    let names: Vec<&str> = code.factors.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["action", "surface", "agility", "spread", "criticality"]
+    );
+    let product: f64 = code.factors.iter().map(|f| f.value).product();
+    assert!(
+        (product - code.person_weeks).abs() < 0.2,
+        "the factors multiply to the estimate: {product} vs {}",
+        code.person_weeks
+    );
+    assert_eq!(
+        code.factors[4].value, 1.5,
+        "critical data costs more to validate"
+    );
+}
+
+#[test]
+fn retained_assets_cost_nothing() {
+    let asset = single(observation(
+        Surface::Source,
+        algorithm(
+            "ml-kem",
+            Params {
+                parameter_set: Some("768".into()),
+                ..Params::default()
+            },
+        ),
+        None,
+    ));
+    let assessment = assessor().assess(&asset, &context("financial", 1.0));
+    let recommendation = recommend(&asset, &assessment, 10.0);
+    assert_eq!(recommendation.action, "retain");
+    assert!(
+        estimate(
+            &asset,
+            &assessment,
+            &recommendation,
+            Criticality::High,
+            Policy::active()
+        )
+        .is_none()
+    );
+}
+
+fn planned(wave: u8, weeks: f64) -> RoadmapItem {
+    RoadmapItem {
+        wave,
+        wave_name: String::new(),
+        asset_id: format!("asset-{wave}-{weeks}"),
+        name: String::new(),
+        component: String::new(),
+        tier: Tier::High,
+        priority: 80,
+        agility: 50,
+        migration_years: 1.0,
+        action: "replace".into(),
+        target: String::new(),
+        effort_person_weeks: weeks,
+        due_year: None,
+    }
+}
+
+#[test]
+fn the_plan_sizes_the_team_that_meets_every_deadline() {
+    let items = [
+        planned(1, 23.0),
+        planned(1, 23.0),
+        planned(2, 92.0),
+        planned(3, 46.0),
+        planned(4, 10.0),
+    ];
+    // assessed in 2026: 2027 leaves two years (92 weeks), 2028 three, 2029 four
+    let schedule = plan(&items, Policy::active(), 2026);
+    assert_eq!(schedule.total_person_weeks, 194.0);
+    let waves: Vec<_> = schedule
+        .waves
+        .iter()
+        .map(|w| {
+            (
+                w.wave,
+                w.items,
+                w.due_year,
+                w.cumulative_person_weeks,
+                w.engineers_needed,
+            )
+        })
+        .collect();
+    assert_eq!(
+        waves,
+        [
+            (1, 2, Some(2027), 46.0, Some(0.5)),
+            (2, 1, Some(2028), 138.0, Some(1.0)),
+            (3, 1, Some(2029), 184.0, Some(1.0)),
+            (4, 1, None, 194.0, None),
+        ]
+    );
+    assert_eq!(schedule.engineers_needed, Some(1.0));
+    assert!(!schedule.overdue);
+
+    let late = plan(&items, Policy::active(), 2028);
+    assert!(late.overdue, "wave 1 was due in 2027");
+    assert!(late.waves[0].overdue && late.waves[0].engineers_needed.is_none());
+    assert_eq!(
+        late.waves[1].engineers_needed,
+        Some(3.0),
+        "everything up to wave 2 in 2028 alone"
+    );
 }
 
 use advisor::Recommendation;

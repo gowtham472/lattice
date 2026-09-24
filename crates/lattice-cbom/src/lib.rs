@@ -16,7 +16,7 @@ use lattice_core::{
 };
 use lattice_graph::AssetContext;
 use lattice_risk::Assessment;
-use lattice_risk::advisor::Recommendation;
+use lattice_risk::advisor::{Effort, MigrationPlan, Recommendation};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -29,6 +29,9 @@ pub struct AssessedAsset<'a> {
     pub context: &'a AssetContext,
     pub assessment: &'a Assessment,
     pub recommendation: &'a Recommendation,
+    pub effort: Option<&'a Effort>,
+    /// Year the asset's roadmap wave is due under the policy's timeline.
+    pub due_year: Option<u16>,
 }
 
 /// Provenance of the inputs that produced the scores, so a report can be recomputed exactly.
@@ -53,6 +56,8 @@ pub struct BomInput<'a> {
     pub provenance: Provenance<'a>,
     pub assets: &'a [AssessedAsset<'a>],
     pub libraries: &'a [LibraryFact],
+    /// The migration plan's totals, recorded in the metadata.
+    pub plan: Option<&'a MigrationPlan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -326,6 +331,13 @@ pub fn build(input: &BomInput<'_>) -> Bom {
         .add("summary:mosca-urgent", summary.mosca_urgent)
         .add("summary:critical", summary.critical)
         .add("summary:high", summary.high);
+    if let Some(plan) = input.plan {
+        metadata_properties
+            .add("plan:timeline", &plan.timeline)
+            .add("plan:person-weeks", plan.total_person_weeks)
+            .add_opt("plan:engineers-needed", plan.engineers_needed)
+            .add("plan:overdue", plan.overdue);
+    }
 
     Bom {
         bom_format: BOM_FORMAT.into(),
@@ -754,6 +766,8 @@ fn asset_properties(assessed: &AssessedAsset<'_>) -> Vec<Property> {
         context,
         assessment,
         recommendation,
+        effort,
+        due_year,
     } = assessed;
     let mut p = Properties::default();
     p.add("component", &asset.component)
@@ -824,6 +838,18 @@ fn asset_properties(assessed: &AssessedAsset<'_>) -> Vec<Property> {
             ),
         );
     }
+    if let Some(effort) = effort {
+        p.add("effort-person-weeks", effort.person_weeks).add(
+            "effort-basis",
+            effort
+                .factors
+                .iter()
+                .map(|f| format!("{} {} ({})", f.name, f.value, f.reason))
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
+    }
+    p.add_opt("migration-due-year", *due_year);
     p.0
 }
 
