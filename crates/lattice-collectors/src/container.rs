@@ -89,7 +89,7 @@ pub fn scan_archive(
     }
 }
 
-fn scan(
+pub(crate) fn scan(
     path: &Path,
     report: &str,
     component: &str,

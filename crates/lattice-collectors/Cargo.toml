@@ -35,6 +35,10 @@ tree-sitter-rust.workspace = true
 tree-sitter-typescript.workspace = true
 walkdir.workspace = true
 
+[features]
+# Entry points for cargo-fuzz: the parsers without panic isolation, so crashes surface.
+fuzzing = []
+
 [dev-dependencies]
 tempfile.workspace = true
 

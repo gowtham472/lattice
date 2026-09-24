@@ -61,7 +61,10 @@ analyses (see [decisions.md §9](decisions.md)).
   Both cover every thread and cannot be undone. `lattice sandbox-check` proves them by
   attempting each forbidden operation in a confined child; `--sandbox required` refuses to run
   unconfined. *Enforced.*
-- **Fuzzing** of every parser with `cargo-fuzz`. *Planned.*
+- **Fuzzing** of every parser of hostile input with `cargo-fuzz` (`fuzz/`, run by
+  `scripts/fuzz.py`): certificates and keys, configuration, source, binaries, packet captures,
+  container archives and algorithm names, without the panic isolation that contains them in a
+  scan. *Enforced* before each release; continuous fuzzing in CI is *Planned*.
 
 ---
 

@@ -11,5 +11,8 @@ lattice-core = { path = "../lattice-core" }
 lattice-graph = { path = "../lattice-graph" }
 serde.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

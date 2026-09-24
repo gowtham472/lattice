@@ -78,4 +78,8 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cd cockpit && npm run typecheck
+scripts/fuzz.py -t 300                  # every parser, 5 minutes each (nightly + cargo-fuzz)
 ```
+
+The demo estate's CBOM is a golden file: when a change to it is intended, regenerate it with
+`LATTICE_BLESS=1 cargo test -p lattice-engine --test golden` and review the diff.

@@ -476,3 +476,138 @@ fn roadmap_puts_urgent_quick_wins_first_and_skips_retained_assets() {
 }
 
 use advisor::Recommendation;
+
+/// Invariants of the scoring, checked over generated assets and contexts.
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Algorithms spanning every quantum class and classical status the scoring distinguishes.
+    const ALGORITHMS: &[(&str, &[u32])] = &[
+        ("rsa", &[1024, 2048, 3072, 4096]),
+        ("ecdsa", &[]),
+        ("x25519", &[]),
+        ("aes", &[128, 192, 256]),
+        ("chacha20-poly1305", &[]),
+        ("sha-256", &[]),
+        ("sha-384", &[]),
+        ("sha-1", &[]),
+        ("md5", &[]),
+        ("hmac", &[]),
+        ("ml-kem", &[]),
+        ("ml-dsa", &[]),
+    ];
+    /// Data classes from least to most sensitive, by the identifier that selects each.
+    const DATA: &[&str] = &["", "card_number", "aadhaar_number", "classified_report"];
+
+    fn data_context(term: &str, exposure: f64) -> AssetContext {
+        let classifier = Classifier::new(Policy::active());
+        let mut context = context("unclassified", exposure);
+        if !term.is_empty() {
+            context.data = classifier.classify_evidence(
+                "x",
+                &[(lattice_classify::EvidenceSource::Argument, term.into())],
+            );
+        }
+        context
+    }
+
+    fn asset(index: usize, bits: Option<u32>, surface: Surface, confirmed_: bool) -> CryptoAsset {
+        let (id, sizes) = ALGORITHMS[index % ALGORITHMS.len()];
+        let key_bits = bits.filter(|b| sizes.contains(b));
+        let params = Params {
+            key_bits,
+            parameter_set: match id {
+                "ml-kem" => Some("768".into()),
+                "ml-dsa" => Some("65".into()),
+                _ => None,
+            },
+            ..Params::default()
+        };
+        let usage = (surface == Surface::Source)
+            .then(|| usage(ApiStyle::Provider, AlgorithmSource::Literal));
+        let asset = single(observation(surface, algorithm(id, params), usage));
+        if confirmed_ { confirmed(asset) } else { asset }
+    }
+
+    fn surfaces() -> impl Strategy<Value = Surface> {
+        prop_oneof![
+            Just(Surface::Source),
+            Just(Surface::Config),
+            Just(Surface::Binary)
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn scores_stay_in_range_and_agree_with_each_other(
+            index in 0usize..64,
+            bits in prop::option::of(prop::sample::select(vec![128u32, 192, 256, 1024, 2048, 3072, 4096])),
+            surface in surfaces(),
+            live in any::<bool>(),
+            data in 0usize..4,
+            exposure in prop::sample::select(vec![0.3f64, 0.6, 1.0]),
+        ) {
+            let asset = asset(index, bits, surface, live);
+            let context = data_context(DATA[data], exposure);
+            let a = assessor().assess(&asset, &context);
+            prop_assert!(a.priority <= 100);
+            prop_assert_eq!(a.tier, Tier::from_priority(a.priority));
+            prop_assert!((0.0..=100.0).contains(&a.exposure_index));
+            prop_assert!([0.0, 0.1, 0.2, 0.5, 1.0].contains(&a.quantum_breakability), "{}", a.quantum_breakability);
+            prop_assert_eq!(a.mosca.applicable, is_quantum_vulnerable(a.quantum_breakability));
+            prop_assert!(!a.mosca.urgent_even_if_late || a.mosca.urgent);
+            prop_assert!(a.agility.score <= 100);
+            prop_assert_eq!(u32::from(a.agility.score), a.agility.factors.iter().map(|f| u32::from(f.points)).sum::<u32>());
+            prop_assert!(a.agility.factors.iter().all(|f| f.points <= f.max && !f.reason.is_empty()));
+            prop_assert!(a.index_terms.iter().all(|t| !t.reason.is_empty()));
+            if a.quantum_breakability == 0.0 && a.classical_status == ClassicalStatus::Acceptable {
+                prop_assert!(a.priority <= 5, "post-quantum and sound: {}", a.priority);
+            }
+            // deterministic
+            let again = assessor().assess(&asset, &context);
+            prop_assert_eq!(a.priority, again.priority);
+            prop_assert_eq!(a.exposure_index, again.exposure_index);
+        }
+
+        #[test]
+        fn more_sensitive_data_never_lowers_priority(
+            index in 0usize..64,
+            bits in prop::option::of(prop::sample::select(vec![128u32, 256, 2048])),
+            surface in surfaces(),
+            live in any::<bool>(),
+            exposure in prop::sample::select(vec![0.3f64, 1.0]),
+            lower in 0usize..4,
+            step in 0usize..4,
+        ) {
+            let higher = (lower + step).min(DATA.len() - 1);
+            let asset = asset(index, bits, surface, live);
+            let low = assessor().assess(&asset, &data_context(DATA[lower], exposure));
+            let high = assessor().assess(&asset, &data_context(DATA[higher], exposure));
+            prop_assert!(high.priority >= low.priority, "{} → {}: {} < {}", DATA[lower], DATA[higher], high.priority, low.priority);
+            prop_assert!(high.exposure_index >= low.exposure_index);
+        }
+
+        #[test]
+        fn more_exposure_never_lowers_priority(
+            index in 0usize..64,
+            surface in surfaces(),
+            live in any::<bool>(),
+            data in 0usize..4,
+        ) {
+            let asset = asset(index, None, surface, live);
+            let inside = assessor().assess(&asset, &data_context(DATA[data], 0.3));
+            let outside = assessor().assess(&asset, &data_context(DATA[data], 1.0));
+            prop_assert!(outside.priority >= inside.priority);
+        }
+
+        #[test]
+        fn longer_symmetric_keys_never_raise_quantum_breakability(small in prop::sample::select(vec![128u32, 192]), large in prop::sample::select(vec![192u32, 256])) {
+            prop_assume!(small < large);
+            let qb = |bits| assessor().assess(&asset(3, Some(bits), Surface::Source, false), &data_context("", 0.3)).quantum_breakability;
+            prop_assert!(qb(large) <= qb(small));
+        }
+    }
+}

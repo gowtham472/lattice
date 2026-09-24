@@ -138,6 +138,14 @@ struct Connection {
 
 type Connections = BTreeMap<(Endpoint, Endpoint), Connection>;
 
+/// Reads and analyses an in-memory capture without isolation, for the fuzz targets.
+#[cfg(feature = "fuzzing")]
+pub(crate) fn analyse_bytes(bytes: &[u8], deadline: &Deadline) -> Result<(), String> {
+    let connections = read_capture(std::io::Cursor::new(bytes), deadline)?;
+    analyse(&connections, "fuzz.pcap", "fuzz", &ScanOptions::default());
+    Ok(())
+}
+
 fn read_capture<R: Read>(mut reader: R, deadline: &Deadline) -> Result<Connections, String> {
     let mut magic = [0u8; 4];
     reader

@@ -556,7 +556,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 /// Unix seconds → RFC 3339 UTC (civil-from-days, Howard Hinnant).
 /// Just enough DER to read key algorithms and sizes. Every read is bounds-checked; malformed
 /// input yields `None`, never a panic.
-mod der {
+pub(crate) mod der {
     use lattice_core::{AlgorithmRef, Params, Registry};
 
     pub struct Tlv<'a> {
@@ -721,7 +721,7 @@ mod der {
 }
 
 /// OpenSSH key formats (RFC 4253 §6.6 public blobs, PROTOCOL.key private keys).
-mod ssh {
+pub(crate) mod ssh {
     use lattice_core::{AlgorithmRef, Params};
 
     pub struct PrivateKey {

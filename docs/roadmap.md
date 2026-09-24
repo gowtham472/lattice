@@ -50,6 +50,8 @@ Each phase is one commit in the history.
     releases; ML-DSA-65 signed, validated whole, monotonic, fail-closed.
 11. **Incremental scans**: a content-addressed cache keyed by file content, the executable and the
     active knowledge; unchanged files are not parsed again and output stays byte-identical.
+12. **Assurance**: property tests for the scoring invariants, a golden CBOM of the demo estate,
+    and `cargo-fuzz` targets for every parser of hostile input.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -64,10 +66,9 @@ In order of value to an operator:
    read-only.
 2. **PDF executive report**: deterministic and signed.
 3. **Access control**: roles, an audit log and mTLS for multi-user deployments.
-4. **Assurance**: fuzzing of every parser, property tests for scoring invariants, a golden
-   CBOM for OpenSSL.
-5. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
-6. **HSM/TPM discovery** through PKCS#11.
+4. **Effort estimates** in person-weeks and the India DST 2027–2029 timeline mapping.
+5. **HSM/TPM discovery** through PKCS#11.
+6. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
 
 ---
 

@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 179 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 185 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -32,9 +32,9 @@ flowchart TD
 | `lattice-collectors` | Source (tree-sitter, 9 languages), binary (ELF/PE/Mach-O symbols, constant tables, OIDs), PKI (X.509, PKCS#1/#8, SEC1, OpenSSH), config and Terraform, container images (docker save, OCI, tarballs), packet captures (pcap, pcapng: TLS, SSH); walker, sandbox, incremental cache | 69 |
 | `lattice-classify` | Data classification from identifiers, parameters, functions, paths | 8 |
 | `lattice-graph` | Crypto graph, entry-point reachability, exposure, data inheritance | 5 |
-| `lattice-risk` | Assessor (QB, threat, HNDL/TNFL index, CAS, Mosca range, tiers) and advisor (recommendations, FIPS 203/204 size deltas, roadmap waves) | 12 |
+| `lattice-risk` | Assessor (QB, threat, HNDL/TNFL index, CAS, Mosca range, tiers) and advisor (recommendations, FIPS 203/204 size deltas, roadmap waves); property tests of the scoring invariants | 16 |
 | `lattice-cbom` | Strict CycloneDX 1.6 emitter, offline schema validation, detached ML-DSA-65 signing (CBOMs and arbitrary content) | 16 |
-| `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles | 10 |
+| `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles; golden CBOM of the demo estate | 12 |
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards | 6 |
 | `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
 | `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `serve`, `sandbox-check`, `knowledge` | 8 end-to-end |
@@ -50,6 +50,8 @@ flowchart TD
 - **Explainable.** Every index term, agility factor, liveness level, evidence grade, data class and Mosca verdict carries its reason.
 - **Tamper evident.** The detached ML-DSA-65 signature covers the exact CBOM bytes plus a per-component BLAKE3 chain. Verification names the altered, removed or reordered component, rejects untrusted keys, and rejects re-hashed forgeries.
 - **Server hardening.** Loopback by default; a non-loopback bind is refused without a bearer token. Host-header checks defeat DNS rebinding. Scans are confined to operator-declared roots (canonicalised, symlink escapes refused). Strict CSP with no inline script, `no-store` on the API, 16 KiB request bodies, unknown fields rejected, bounded scan queue, one scan at a time.
+- **Fuzzed.** Eight `cargo-fuzz` targets cover every parser of hostile input (`fuzz/`, `scripts/fuzz.py`).
+- **Stable output.** The demo estate's CBOM is compared byte for byte with a reviewed golden file.
 - **CI contract.** Exit code 0 means clean, 1 a regression at or above `--fail-on`, 2 a usage or scan error, 3 a verification failure. A baseline can be required to be signed.
 
 ## Milestones
@@ -72,6 +74,7 @@ flowchart TD
 | Release packaging (static musl binaries, SBOM, signatures, systemd unit, container image) | Delivered |
 | Signed knowledge bundles (monotonic, validated whole, fail-closed) | Delivered |
 | Incremental scans (content-addressed cache, byte-identical output) | Delivered |
+| Assurance: property tests, golden CBOM, cargo-fuzz targets for every parser | Delivered |
 
 ## Usage
 

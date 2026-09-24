@@ -15,6 +15,8 @@ pub mod cache;
 pub mod capture;
 pub mod config;
 pub mod container;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 pub mod pki;
 pub mod sandbox;
 pub mod source;

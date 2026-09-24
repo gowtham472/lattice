@@ -321,6 +321,17 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 - **Versioning.** Knowledge, rules and policy carry versions recorded in every report and CBOM.
 - **Tests.** Unit and end-to-end tests per crate, including schema validation of emitted CBOMs,
   tamper detection, sandbox probes and a server started as a real process.
+- **Property tests** (`proptest`) state the scoring invariants over generated assets: every score
+  stays in range and the tier agrees with the score; more sensitive data or more exposure never
+  lowers an asset's priority; a longer symmetric key is never more quantum-breakable.
+- **A golden CBOM.** The demo estate's CBOM is checked byte for byte against
+  `crates/lattice-engine/tests/golden/`; any change to detection, scoring or CycloneDX output is a
+  reviewed diff (`LATTICE_BLESS=1` regenerates it).
+- **Fuzzing.** `fuzz/` holds `cargo-fuzz` targets for every parser of hostile input: certificates
+  and keys (through the collector and the raw DER/OpenSSH decoders), configuration, source in
+  every language, binaries, packet captures, container archives and algorithm names. The targets
+  call the parsers without the per-file panic isolation a scan uses, so a panic is a finding, not
+  a contained failure. `scripts/fuzz.py` seeds them from the repository and runs them.
 
 ---
 
@@ -334,5 +345,5 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 | PDF executive report | Planned |
 | Live scan progress over WebSocket | Not built; the cockpit polls |
 | Role-based access control, audit log, mTLS | Planned; the server has loopback binding and a bearer token |
-| Fuzzing, property tests, a golden OpenSSL CBOM | Planned |
+| A golden CBOM of an OpenSSL release | Planned; the demo estate has one today |
 | Windows and macOS builds | Not built; the sandbox is Linux-only |
