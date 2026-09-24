@@ -111,5 +111,6 @@ In order of value to an operator:
 |------|------------|
 | Rule coverage gaps in a language | Rules are data (`rules/source.toml`); unmatched crypto still surfaces through imports, binaries, configuration and traffic |
 | Kernels without Landlock | `best-effort` reports it; `required` refuses to run; seccomp is near-universal |
+| Targets on 9p (WSL Windows drives), where Landlock rules do not hold | Detected before confinement: `best-effort` skips Landlock and says why, `required` refuses; readable roots are re-checked after confinement so no filesystem can turn into a silently empty scan |
 | Very large archives or captures | Streamed with size, expansion, packet and time bounds; partial results reported |
 | CycloneDX changes | Official schema vendored and every emitted CBOM validated in tests |

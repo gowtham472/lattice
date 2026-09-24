@@ -117,3 +117,7 @@ On Linux every command that reads untrusted content confines itself before doing
 `--sandbox required` refuses to run otherwise; `--sandbox off` disables it. `lattice sandbox-check`
 proves what is enforced on the current machine by attempting each forbidden operation in a
 confined child process. The scan summary and the server's `/api/health` report the status.
+
+Landlock cannot confine paths on 9p, the filesystem WSL uses for Windows drives (`/mnt/c`, `/mnt/d`).
+There `best-effort` applies only the system-call layer and names the path; `required` refuses.
+Copy the target to a Linux filesystem to scan it fully confined.

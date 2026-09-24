@@ -14,6 +14,12 @@
 //!
 //! Both apply to every thread and are irreversible for the life of the process. Where the kernel
 //! or platform lacks a mechanism the [`Report`] says so; in [`Mode::Required`] that is an error.
+//!
+//! Landlock attaches rules to inodes, and some filesystems do not keep inodes stable across
+//! lookups: on 9p (the filesystem WSL uses for Windows drives) a confined process is denied even
+//! the paths it was granted. Such paths are detected before confinement and Landlock is skipped,
+//! with the reason reported. After confinement every readable root is checked, so a filesystem
+//! that misbehaves in a way not detected up front fails loudly instead of yielding an empty scan.
 
 use serde::Serialize;
 use std::path::PathBuf;
@@ -133,15 +139,51 @@ mod platform {
     };
     use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, SeccompRule, TargetArch};
     use std::collections::BTreeMap;
+    use std::path::Path;
 
     /// The newest Landlock ABI LATTICE knows; older kernels get the subset they support.
     const ABI_LATEST: ABI = ABI::V5;
 
+    /// `statfs` magic of 9p (v9fs), where Landlock path rules do not hold.
+    const V9FS_MAGIC: i64 = 0x0102_1997;
+
     pub fn apply(plan: &Plan) -> Result<(Layer, Layer), SandboxError> {
-        // Landlock first: restricting self also sets no_new_privs, which seccomp requires.
         let filesystem = landlock(plan)?;
         let syscalls = seccomp()?;
+        if filesystem.is_active() {
+            check_readable(plan)?;
+        }
         Ok((filesystem, syscalls))
+    }
+
+    /// A filesystem Landlock cannot confine correctly, if `path` is on one.
+    fn unsupported_filesystem(path: &Path) -> Option<&'static str> {
+        let kind = rustix::fs::statfs(path).ok()?.f_type;
+        #[allow(clippy::unnecessary_cast)] // f_type's width varies by architecture
+        (kind as i64 == V9FS_MAGIC).then_some("9p")
+    }
+
+    /// Every readable root must still be readable once confined.
+    fn check_readable(plan: &Plan) -> Result<(), SandboxError> {
+        for path in &plan.read {
+            let readable = if path.is_dir() {
+                std::fs::read_dir(path).map(|_| ())
+            } else {
+                std::fs::File::open(path).map(|_| ())
+            };
+            if let Err(error) = readable {
+                return Err(SandboxError::Apply {
+                    layer: "filesystem",
+                    reason: format!(
+                        "Landlock denies {} on this filesystem ({}); move it to a local \
+                         filesystem or run with --sandbox off",
+                        path.display(),
+                        error.kind()
+                    ),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn landlock(plan: &Plan) -> Result<Layer, SandboxError> {
@@ -152,6 +194,17 @@ mod platform {
                     reason: "does not exist".into(),
                 });
             }
+        }
+        if let Some((path, kind)) = plan
+            .read
+            .iter()
+            .chain(&plan.write)
+            .find_map(|path| unsupported_filesystem(path).map(|kind| (path, kind)))
+        {
+            return Ok(Layer::Unavailable(format!(
+                "{} is on {kind}, which Landlock cannot confine",
+                path.display()
+            )));
         }
         let apply = || -> Result<RulesetStatus, landlock::RulesetError> {
             let status = Ruleset::default()
@@ -254,6 +307,9 @@ mod platform {
         let program: BpfProgram = filter
             .try_into()
             .map_err(|e: seccompiler::BackendError| error(e.to_string()))?;
+        // seccomp needs no_new_privs; Landlock sets it too, but may have been skipped
+        rustix::thread::set_no_new_privs(true)
+            .map_err(|e| error(format!("could not set no_new_privs: {e}")))?;
         seccompiler::apply_filter_all_threads(&program).map_err(|e| error(e.to_string()))?;
         Ok(Layer::Enforced)
     }
