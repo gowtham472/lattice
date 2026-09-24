@@ -73,6 +73,7 @@ fn format_of(path: &str) -> Option<Format> {
             | "dovecot.conf"
             | "stunnel.conf"
             | "java.security"
+            | "crypttab"
     ) || lower.starts_with("sshd_config")
     {
         return Some(if lower == "java.security" {
@@ -141,6 +142,10 @@ impl Collector for ConfigCollector {
             Format::KeyValue => key_values(&mut out, deadline)?,
             Format::Terraform => terraform(&mut out, deadline)?,
         }
+        deadline.check()?;
+        for reference in crate::custody::find(artifact.path, &text) {
+            out.held_key(reference);
+        }
         out.attach_served();
         Ok(())
     }
@@ -189,6 +194,43 @@ impl Out<'_, '_> {
             },
             usage: None,
         });
+    }
+
+    /// A key held in hardware or a key service, referenced by this configuration.
+    fn held_key(&mut self, reference: crate::custody::Reference) {
+        self.custody_material(
+            reference.material_type,
+            None,
+            reference.custody,
+            &reference.key,
+            reference.rule,
+            &reference.token,
+            reference.line,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn custody_material(
+        &mut self,
+        material_type: lattice_core::MaterialType,
+        algorithm: Option<AlgorithmRef>,
+        custody: lattice_core::Custody,
+        key: &str,
+        rule: &str,
+        token: &str,
+        line: u64,
+    ) {
+        let size_bits = algorithm.as_ref().and_then(|a| a.params.key_bits);
+        let finding = Finding::RelatedCryptoMaterial(lattice_core::MaterialFinding {
+            material_type,
+            algorithm,
+            size_bits,
+            format: "reference".into(),
+            encrypted: false,
+            identity: blake3::hash(format!("custody|{key}").as_bytes()).to_hex()[..32].to_owned(),
+            custody: Some(custody),
+        });
+        self.push(finding, rule, token, line);
     }
 
     fn algorithm(&mut self, algorithm: AlgorithmRef, rule: &str, token: &str, line: u64) {
@@ -963,7 +1005,7 @@ fn key_values(out: &mut Out<'_, '_>, deadline: &Deadline) -> Result<(), String> 
 // ---- Terraform -------------------------------------------------------------------------------
 
 /// A resource being read: its type, first line, and attributes with the line each was set on.
-type OpenResource = (String, u64, BTreeMap<String, (String, u64)>);
+type OpenResource = (String, String, u64, BTreeMap<String, (String, u64)>);
 
 /// Reads `resource "TYPE" "NAME" { ... }` blocks and their attributes (including one level of
 /// nested blocks), then interprets each resource type's cryptographic attributes together, since
@@ -980,9 +1022,10 @@ fn terraform(out: &mut Out<'_, '_>, deadline: &Deadline) -> Result<(), String> {
         let line = strip_comment(raw).trim();
         if depth == 0 && line.starts_with("resource ") {
             let kind = line.split('"').nth(1).unwrap_or("").to_owned();
-            resource = Some((kind, line_number, BTreeMap::new()));
+            let name = line.split('"').nth(3).unwrap_or("").to_owned();
+            resource = Some((kind, name, line_number, BTreeMap::new()));
         }
-        if let Some((_, _, attributes)) = resource.as_mut()
+        if let Some((_, _, _, attributes)) = resource.as_mut()
             && let Some((key, value)) = line.split_once('=')
             && !line.ends_with('{')
         {
@@ -992,15 +1035,141 @@ fn terraform(out: &mut Out<'_, '_>, deadline: &Deadline) -> Result<(), String> {
         depth += line.matches('{').count() as i32 - line.matches('}').count() as i32;
         if depth <= 0 {
             depth = 0;
-            if let Some((kind, _, attributes)) = resource.take() {
+            if let Some((kind, name, line, attributes)) = resource.take() {
                 terraform_resource(out, &kind, &attributes);
+                terraform_key(out, &kind, &name, line, &attributes);
             }
         }
     }
-    if let Some((kind, _, attributes)) = resource.take() {
+    if let Some((kind, name, line, attributes)) = resource.take() {
         terraform_resource(out, &kind, &attributes);
+        terraform_key(out, &kind, &name, line, &attributes);
     }
     Ok(())
+}
+
+/// Cloud key resources are keys held by a key service: record each as a key with its custody,
+/// its algorithm when the resource names one, and HSM backing when it asks for it.
+fn terraform_key(
+    out: &mut Out<'_, '_>,
+    kind: &str,
+    name: &str,
+    line: u64,
+    attributes: &BTreeMap<String, (String, u64)>,
+) {
+    use lattice_core::{Custody, CustodyKind, MaterialType};
+    let get = |attribute: &str| attributes.get(attribute).map(|(value, _)| value.as_str());
+    let (custody, service) = match kind {
+        "aws_kms_key" => (
+            if get("custom_key_store_id").is_some() {
+                CustodyKind::CloudHsm
+            } else {
+                CustodyKind::CloudKms
+            },
+            "AWS KMS",
+        ),
+        "google_kms_crypto_key" => (
+            if get("protection_level").is_some_and(|level| level.eq_ignore_ascii_case("HSM")) {
+                CustodyKind::CloudHsm
+            } else {
+                CustodyKind::CloudKms
+            },
+            "Google Cloud KMS",
+        ),
+        "azurerm_key_vault_key" => (
+            if get("key_type").is_some_and(|t| t.to_ascii_uppercase().ends_with("-HSM")) {
+                CustodyKind::CloudHsm
+            } else {
+                CustodyKind::CloudKms
+            },
+            "Azure Key Vault",
+        ),
+        _ => return,
+    };
+    let algorithm = ["customer_master_key_spec", "key_spec", "algorithm"]
+        .into_iter()
+        .find_map(|attribute| {
+            get(attribute).and_then(|v| names::parse_key_spec(v).or_else(|| names::resolve(v)))
+        })
+        .or_else(|| {
+            let key_type = get("key_type")?.to_ascii_uppercase();
+            if key_type.starts_with("RSA") {
+                Some(AlgorithmRef::with_params(
+                    "rsa",
+                    lattice_core::Params {
+                        key_bits: get("key_size").and_then(|bits| bits.parse().ok()),
+                        ..Default::default()
+                    },
+                ))
+            } else if key_type.starts_with("EC") {
+                Some(AlgorithmRef::with_params(
+                    "ecdsa",
+                    lattice_core::Params {
+                        curve: get("curve").and_then(names::resolve_curve),
+                        ..Default::default()
+                    },
+                ))
+            } else {
+                None
+            }
+        })
+        .map(|mut algorithm| {
+            if let Some(curve) = algorithm.params.curve.take() {
+                algorithm.params.curve = Some(Registry::active().canonical_curve(&curve));
+            }
+            algorithm
+        });
+    // what the service lets the key do: AWS key_usage, GCP purpose, Azure key_opts
+    let usage = [get("key_usage"), get("purpose"), get("key_opts")]
+        .into_iter()
+        .flatten()
+        .find_map(|value| {
+            let value = value.to_ascii_lowercase();
+            if value.contains("sign") {
+                Some(lattice_core::KeyUsage::Sign)
+            } else if value.contains("decrypt") || value.contains("unwrap") {
+                Some(lattice_core::KeyUsage::Encrypt)
+            } else {
+                None
+            }
+        });
+    // a resource that names no spec gets the service's default: a symmetric AES-256 key
+    let algorithm = algorithm.or_else(|| match kind {
+        "aws_kms_key" => names::parse_key_spec("SYMMETRIC_DEFAULT"),
+        "google_kms_crypto_key"
+            if get("purpose").is_none_or(|purpose| purpose == "ENCRYPT_DECRYPT") =>
+        {
+            names::parse_key_spec("GOOGLE_SYMMETRIC_ENCRYPTION")
+        }
+        _ => None,
+    });
+    let symmetric = algorithm.as_ref().is_some_and(|a| {
+        matches!(
+            Registry::active().get(&a.id).map(|spec| spec.primitive),
+            Some(
+                lattice_core::Primitive::BlockCipher
+                    | lattice_core::Primitive::Ae
+                    | lattice_core::Primitive::Mac
+            )
+        )
+    });
+    out.custody_material(
+        if symmetric {
+            MaterialType::SecretKey
+        } else {
+            MaterialType::PrivateKey
+        },
+        algorithm,
+        Custody {
+            kind: custody,
+            detail: format!("{service} key {kind}.{name}"),
+            usage,
+        },
+        &format!("terraform:{kind}.{name}"),
+        &format!("config.custody.{kind}"),
+        &format!("{kind}.{name}"),
+        line,
+    );
 }
 
 fn terraform_resource(
@@ -1378,5 +1547,117 @@ resource "tls_private_key" "legacy" {
             "frontend web\n  bind :443 ssl crt /etc/haproxy/site.pem alpn h2\n",
         );
         assert_eq!(haproxy.functions[0].serves, vec!["site.pem".to_owned()]);
+    }
+
+    fn held_keys(
+        findings: &Findings,
+    ) -> Vec<(String, lattice_core::Custody, lattice_core::MaterialType)> {
+        findings
+            .observations
+            .iter()
+            .filter_map(|o| match &o.finding {
+                Finding::RelatedCryptoMaterial(m) => m
+                    .custody
+                    .clone()
+                    .map(|c| (o.finding.display_name(), c, m.material_type)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn cloud_keys_record_custody_usage_and_hsm_backing() {
+        use lattice_core::{CustodyKind, KeyUsage};
+        let findings = run(
+            "infra/keys.tf",
+            r#"resource "aws_kms_key" "signing" {
+  customer_master_key_spec = "RSA_3072"
+  key_usage                = "SIGN_VERIFY"
+  custom_key_store_id      = "cks-1234"
+}
+
+resource "google_kms_crypto_key" "wrap" {
+  purpose = "ASYMMETRIC_DECRYPT"
+  version_template {
+    algorithm        = "RSA_DECRYPT_OAEP_2048_SHA256"
+    protection_level = "HSM"
+  }
+}
+
+resource "azurerm_key_vault_key" "token" {
+  key_type = "EC"
+  curve    = "P-256"
+  key_opts = ["sign", "verify"]
+}
+
+resource "aws_kms_key" "data" {
+  description = "default symmetric key"
+}
+"#,
+        );
+        let held = held_keys(&findings);
+        let summary: Vec<(
+            &str,
+            CustodyKind,
+            Option<KeyUsage>,
+            lattice_core::MaterialType,
+        )> = held
+            .iter()
+            .map(|(name, c, t)| (name.as_str(), c.kind, c.usage, *t))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "RSA-3072 private-key",
+                    CustodyKind::CloudHsm,
+                    Some(KeyUsage::Sign),
+                    lattice_core::MaterialType::PrivateKey
+                ),
+                (
+                    "RSA-2048 (OAEP, SHA-256) private-key",
+                    CustodyKind::CloudHsm,
+                    Some(KeyUsage::Encrypt),
+                    lattice_core::MaterialType::PrivateKey
+                ),
+                (
+                    "ECDSA-P-256 private-key",
+                    CustodyKind::CloudKms,
+                    Some(KeyUsage::Sign),
+                    lattice_core::MaterialType::PrivateKey
+                ),
+                (
+                    "AES-256-GCM secret-key",
+                    CustodyKind::CloudKms,
+                    None,
+                    lattice_core::MaterialType::SecretKey
+                ),
+            ],
+            "{held:#?}"
+        );
+        assert!(held[0].1.detail.contains("aws_kms_key.signing"));
+    }
+
+    #[test]
+    fn configuration_references_to_hardware_keys_are_inventoried() {
+        let findings = run(
+            "gateway/nginx.conf",
+            "server {\n    listen 443 ssl;\n    ssl_certificate /etc/nginx/tls.crt;\n    ssl_certificate_key \"engine:pkcs11:pkcs11:token=edge;object=tls-key;type=private?pin-value=0000\";\n}\n",
+        );
+        let held = held_keys(&findings);
+        assert_eq!(held.len(), 1, "{held:#?}");
+        assert_eq!(held[0].1.kind, lattice_core::CustodyKind::Pkcs11Token);
+        let observation = findings
+            .observations
+            .iter()
+            .find(|o| matches!(&o.finding, Finding::RelatedCryptoMaterial(_)))
+            .unwrap();
+        assert!(!observation.evidence.matched_token.contains("pin"));
+        assert!(
+            run("etc/crypttab", "root UUID=1 none tpm2-device=auto\n")
+                .observations
+                .iter()
+                .any(|o| o.evidence.rule_id == "config.custody.crypttab-tpm2")
+        );
     }
 }

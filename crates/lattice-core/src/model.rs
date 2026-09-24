@@ -282,6 +282,61 @@ pub enum MaterialType {
     Other,
 }
 
+/// Where a key is held when it is not a file LATTICE can read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CustodyKind {
+    /// A PKCS#11 token: a hardware security module, a smart card, or a software token such as
+    /// SoftHSM. A reference alone does not say which.
+    Pkcs11Token,
+    /// A Trusted Platform Module: the key is wrapped by, or sealed to, the TPM.
+    Tpm,
+    /// A cloud provider's HSM-backed key service.
+    CloudHsm,
+    /// A cloud provider's software-protected key management service.
+    CloudKms,
+}
+
+impl CustodyKind {
+    /// CycloneDX `securedBy.mechanism`.
+    pub fn mechanism(self) -> &'static str {
+        match self {
+            Self::Pkcs11Token => "PKCS#11 token",
+            Self::Tpm => "TPM",
+            Self::CloudHsm => "cloud HSM",
+            Self::CloudKms => "cloud KMS",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pkcs11Token => "pkcs11-token",
+            Self::Tpm => "tpm",
+            Self::CloudHsm => "cloud-hsm",
+            Self::CloudKms => "cloud-kms",
+        }
+    }
+}
+
+/// What a held key is permitted to do, when the device or service records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeyUsage {
+    Sign,
+    Encrypt,
+}
+
+/// A key held in hardware or a key service, and what identifies it there.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Custody {
+    pub kind: CustodyKind,
+    /// e.g. `PKCS#11 token "prod-ca", object "tls"`. Never a PIN or secret.
+    pub detail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<KeyUsage>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MaterialFinding {
@@ -297,6 +352,9 @@ pub struct MaterialFinding {
     /// Stable, non-reversible identity of the material (BLAKE3 over the public part or the
     /// container), so the same key in two files is one asset. Never the key itself.
     pub identity: String,
+    /// Set when the key lives in an HSM, a TPM or a key service and is only referenced here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custody: Option<Custody>,
 }
 
 /// What an observation saw. Variants map one-to-one onto CycloneDX `assetType`.

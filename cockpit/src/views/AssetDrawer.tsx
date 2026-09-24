@@ -3,6 +3,13 @@ import type { AssetReport, Report } from '../types';
 import { THREAT_LABEL, assetTypeLabel, bytes, componentName, titleCase, weeks, where, years } from '../format';
 import { Bar, Icon, TierBadge } from '../ui';
 
+const CUSTODY = {
+  'pkcs11-token': 'a PKCS#11 token (HSM or smart card)',
+  tpm: 'a TPM',
+  'cloud-hsm': 'a cloud HSM',
+  'cloud-kms': 'a cloud KMS',
+} as const;
+
 export function AssetDrawer({ item, report, onClose, onOpen }: { item: AssetReport; report: Report; onClose: () => void; onOpen: (id: string) => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -33,6 +40,16 @@ export function AssetDrawer({ item, report, onClose, onOpen }: { item: AssetRepo
         <div className="mono faint">
           {componentName(asset.component, report.subject)} · {asset.id}
         </div>
+
+        {asset.finding.assetType === 'related-crypto-material' && asset.finding.custody && (
+          <div className="callout" style={{ marginTop: 16 }}>
+            <strong>Held in {CUSTODY[asset.finding.custody.kind]}</strong>
+            <div className="muted" style={{ marginTop: 4 }}>
+              {asset.finding.custody.detail}
+              {asset.finding.custody.usage && ` · ${asset.finding.custody.usage === 'sign' ? 'signing' : 'decryption'} key`}
+            </div>
+          </div>
+        )}
 
         <div className={`callout ${a.brokenNow || m.urgent ? 'danger' : ''}`} style={{ marginTop: 16 }}>
           <strong>

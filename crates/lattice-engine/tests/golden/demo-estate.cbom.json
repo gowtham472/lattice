@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:99e4c9be-a6af-4af4-aa24-74a918e5eb86",
+  "serialNumber": "urn:uuid:d54ffbe5-bbc8-48a6-85e3-fa469168ec22",
   "version": 1,
   "metadata": {
     "timestamp": "2026-09-23T00:00:00Z",
@@ -48,11 +48,11 @@
       },
       {
         "name": "lattice:summary:assets",
-        "value": "47"
+        "value": "49"
       },
       {
         "name": "lattice:summary:quantum-vulnerable",
-        "value": "32"
+        "value": "34"
       },
       {
         "name": "lattice:summary:broken-now",
@@ -60,7 +60,7 @@
       },
       {
         "name": "lattice:summary:mosca-urgent",
-        "value": "30"
+        "value": "32"
       },
       {
         "name": "lattice:summary:critical",
@@ -76,7 +76,7 @@
       },
       {
         "name": "lattice:plan:person-weeks",
-        "value": "163.7"
+        "value": "167.5"
       },
       {
         "name": "lattice:plan:engineers-needed",
@@ -1698,6 +1698,12 @@
         "occurrences": [
           {
             "location": "infra/kms.tf",
+            "line": 7,
+            "symbol": "google_kms_crypto_key.device_attestation",
+            "additionalContext": "cloud evidence via config rule config.custody.google_kms_crypto_key#dependency@2026.09.1 (infrastructure)"
+          },
+          {
+            "location": "infra/kms.tf",
             "line": 13,
             "symbol": "google_kms_crypto_key.algorithm",
             "additionalContext": "cloud evidence via config rule config.terraform.google_kms_crypto_key@2026.09.1 (infrastructure)"
@@ -1719,7 +1725,7 @@
         },
         {
           "name": "lattice:liveness-reason",
-          "value": "selected by infrastructure-as-code at infra/kms.tf:13"
+          "value": "selected by infrastructure-as-code at infra/kms.tf:7"
         },
         {
           "name": "lattice:evidence-grade",
@@ -3124,6 +3130,12 @@
         "occurrences": [
           {
             "location": "infra/kms.tf",
+            "line": 1,
+            "symbol": "aws_kms_key.statement_signing",
+            "additionalContext": "cloud evidence via config rule config.custody.aws_kms_key#dependency@2026.09.1 (infrastructure)"
+          },
+          {
+            "location": "infra/kms.tf",
             "line": 3,
             "symbol": "aws_kms_key.customer_master_key_spec",
             "additionalContext": "cloud evidence via config rule config.terraform.aws_kms_key@2026.09.1 (infrastructure)"
@@ -3145,7 +3157,7 @@
         },
         {
           "name": "lattice:liveness-reason",
-          "value": "selected by infrastructure-as-code at infra/kms.tf:3"
+          "value": "selected by infrastructure-as-code at infra/kms.tf:1"
         },
         {
           "name": "lattice:evidence-grade",
@@ -7427,6 +7439,163 @@
     },
     {
       "type": "cryptographic-asset",
+      "bom-ref": "crypto/related-crypto-material/key/46a8e12e253470d2",
+      "name": "ECDSA-P-256 (SHA-256) private-key",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {
+          "type": "private-key",
+          "id": "e4ddd95edc3008ca75273f69c2f7bc3b",
+          "algorithmRef": "crypto/algorithm/ecdsa/2eb2156dd8c1c72c",
+          "format": "reference",
+          "securedBy": {
+            "mechanism": "cloud KMS"
+          }
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "infra/kms.tf",
+            "line": 7,
+            "symbol": "google_kms_crypto_key.device_attestation",
+            "additionalContext": "cloud evidence via config rule config.custody.google_kms_crypto_key@2026.09.1 (infrastructure)"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "lattice:custody",
+          "value": "cloud-kms"
+        },
+        {
+          "name": "lattice:custody-detail",
+          "value": "Google Cloud KMS key google_kms_crypto_key.device_attestation"
+        },
+        {
+          "name": "lattice:component",
+          "value": "infra"
+        },
+        {
+          "name": "lattice:surfaces",
+          "value": "cloud"
+        },
+        {
+          "name": "lattice:liveness",
+          "value": "configured"
+        },
+        {
+          "name": "lattice:liveness-reason",
+          "value": "selected by infrastructure-as-code at infra/kms.tf:7"
+        },
+        {
+          "name": "lattice:evidence-grade",
+          "value": "C"
+        },
+        {
+          "name": "lattice:evidence-grade-reason",
+          "value": "one evidence layer: a built or deployed artefact"
+        },
+        {
+          "name": "lattice:reachable",
+          "value": "false"
+        },
+        {
+          "name": "lattice:exposure",
+          "value": "0.3"
+        },
+        {
+          "name": "lattice:exposure-reason",
+          "value": "no detected entry point reaches it; policy default exposure applies (not assumed dead)"
+        },
+        {
+          "name": "lattice:data-class",
+          "value": "unclassified"
+        },
+        {
+          "name": "lattice:data-secrecy-years",
+          "value": "5"
+        },
+        {
+          "name": "lattice:data-reason",
+          "value": "no name around this asset identifies its data; the policy default of 5 years applies"
+        },
+        {
+          "name": "lattice:quantum-breakability",
+          "value": "1"
+        },
+        {
+          "name": "lattice:quantum-reason",
+          "value": "Shor's algorithm breaks ECDSA outright (factoring / discrete logarithm)"
+        },
+        {
+          "name": "lattice:classical-status",
+          "value": "acceptable"
+        },
+        {
+          "name": "lattice:threat",
+          "value": "forge"
+        },
+        {
+          "name": "lattice:tnfl-index",
+          "value": "4.2"
+        },
+        {
+          "name": "lattice:agility-score",
+          "value": "75"
+        },
+        {
+          "name": "lattice:mosca-x-years",
+          "value": "5"
+        },
+        {
+          "name": "lattice:mosca-y-years",
+          "value": "1.25"
+        },
+        {
+          "name": "lattice:mosca-z-years",
+          "value": "4..9"
+        },
+        {
+          "name": "lattice:mosca-urgent",
+          "value": "true"
+        },
+        {
+          "name": "lattice:mosca-verdict",
+          "value": "X + Y = 6.25 years exceeds the earliest Q-day (4 years away): migrate now"
+        },
+        {
+          "name": "lattice:priority",
+          "value": "19"
+        },
+        {
+          "name": "lattice:tier",
+          "value": "low"
+        },
+        {
+          "name": "lattice:recommendation-action",
+          "value": "replace"
+        },
+        {
+          "name": "lattice:recommendation-target",
+          "value": "ML-DSA-65 (FIPS 204) key generated inside the cloud KMS"
+        },
+        {
+          "name": "lattice:recommendation-rationale",
+          "value": "ECDSA-P-256 (SHA-256) is broken by a quantum computer and the key never leaves the cloud KMS, so its replacement must be generated there too, when the provider offers it as a key spec; plan the switch and the re-signing or re-wrapping of what the key protects."
+        },
+        {
+          "name": "lattice:effort-person-weeks",
+          "value": "1.9"
+        },
+        {
+          "name": "lattice:effort-basis",
+          "value": "action 2 (replace one asset); surface 0.8 (changed in cloud); agility 1.5 (crypto-agility 75/100); spread 1 (1 file); criticality 1 (protects medium data); custody 0.8 (held in a cloud KMS)"
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
       "bom-ref": "crypto/related-crypto-material/key/7bcee57c6cb7a3fa",
       "name": "RSA-1024 private-key",
       "cryptoProperties": {
@@ -7589,6 +7758,164 @@
       ]
     },
     {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/related-crypto-material/key/b76b9ec37b1c3766",
+      "name": "RSA-2048 private-key",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {
+          "type": "private-key",
+          "id": "96ede639664cfe8934f0e264b8e16f31",
+          "algorithmRef": "crypto/algorithm/rsa/51c82444e4dd16e6",
+          "size": 2048,
+          "format": "reference",
+          "securedBy": {
+            "mechanism": "cloud KMS"
+          }
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "infra/kms.tf",
+            "line": 1,
+            "symbol": "aws_kms_key.statement_signing",
+            "additionalContext": "cloud evidence via config rule config.custody.aws_kms_key@2026.09.1 (infrastructure)"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "lattice:custody",
+          "value": "cloud-kms"
+        },
+        {
+          "name": "lattice:custody-detail",
+          "value": "AWS KMS key aws_kms_key.statement_signing"
+        },
+        {
+          "name": "lattice:component",
+          "value": "infra"
+        },
+        {
+          "name": "lattice:surfaces",
+          "value": "cloud"
+        },
+        {
+          "name": "lattice:liveness",
+          "value": "configured"
+        },
+        {
+          "name": "lattice:liveness-reason",
+          "value": "selected by infrastructure-as-code at infra/kms.tf:1"
+        },
+        {
+          "name": "lattice:evidence-grade",
+          "value": "C"
+        },
+        {
+          "name": "lattice:evidence-grade-reason",
+          "value": "one evidence layer: a built or deployed artefact"
+        },
+        {
+          "name": "lattice:reachable",
+          "value": "false"
+        },
+        {
+          "name": "lattice:exposure",
+          "value": "0.3"
+        },
+        {
+          "name": "lattice:exposure-reason",
+          "value": "no detected entry point reaches it; policy default exposure applies (not assumed dead)"
+        },
+        {
+          "name": "lattice:data-class",
+          "value": "unclassified"
+        },
+        {
+          "name": "lattice:data-secrecy-years",
+          "value": "5"
+        },
+        {
+          "name": "lattice:data-reason",
+          "value": "no name around this asset identifies its data; the policy default of 5 years applies"
+        },
+        {
+          "name": "lattice:quantum-breakability",
+          "value": "1"
+        },
+        {
+          "name": "lattice:quantum-reason",
+          "value": "Shor's algorithm breaks RSA outright (factoring / discrete logarithm)"
+        },
+        {
+          "name": "lattice:classical-status",
+          "value": "acceptable"
+        },
+        {
+          "name": "lattice:threat",
+          "value": "harvest"
+        },
+        {
+          "name": "lattice:hndl-index",
+          "value": "4.2"
+        },
+        {
+          "name": "lattice:agility-score",
+          "value": "75"
+        },
+        {
+          "name": "lattice:mosca-x-years",
+          "value": "5"
+        },
+        {
+          "name": "lattice:mosca-y-years",
+          "value": "1.25"
+        },
+        {
+          "name": "lattice:mosca-z-years",
+          "value": "4..9"
+        },
+        {
+          "name": "lattice:mosca-urgent",
+          "value": "true"
+        },
+        {
+          "name": "lattice:mosca-verdict",
+          "value": "X + Y = 6.25 years exceeds the earliest Q-day (4 years away): migrate now"
+        },
+        {
+          "name": "lattice:priority",
+          "value": "19"
+        },
+        {
+          "name": "lattice:tier",
+          "value": "low"
+        },
+        {
+          "name": "lattice:recommendation-action",
+          "value": "replace"
+        },
+        {
+          "name": "lattice:recommendation-target",
+          "value": "ML-DSA-65 (FIPS 204) key generated inside the cloud KMS"
+        },
+        {
+          "name": "lattice:recommendation-rationale",
+          "value": "RSA-2048 is broken by a quantum computer and the key never leaves the cloud KMS, so its replacement must be generated there too, when the provider offers it as a key spec; plan the switch and the re-signing or re-wrapping of what the key protects."
+        },
+        {
+          "name": "lattice:effort-person-weeks",
+          "value": "1.9"
+        },
+        {
+          "name": "lattice:effort-basis",
+          "value": "action 2 (replace one asset); surface 0.8 (changed in cloud); agility 1.5 (crypto-agility 75/100); spread 1 (1 file); criticality 1 (protects medium data); custody 0.8 (held in a cloud KMS)"
+        }
+      ]
+    },
+    {
       "type": "library",
       "bom-ref": "library/registry.example.gov.in/payments-api:4.2.0/openssl@3.0.13",
       "name": "OpenSSL",
@@ -7627,7 +7954,6 @@
         "crypto/algorithm/ecdh/de8a4c3a19898c35",
         "crypto/algorithm/ecdsa/02725b6bd439adc9",
         "crypto/algorithm/ecdsa/250d4c32d98b4c56",
-        "crypto/algorithm/ecdsa/2eb2156dd8c1c72c",
         "crypto/algorithm/hmac/71edb2f99af25742",
         "crypto/algorithm/hmac/91eb27af2eb2457f",
         "crypto/algorithm/hmac/98c6b787f75e3fb1",
@@ -7636,7 +7962,6 @@
         "crypto/algorithm/md5/8315954c8d55a315",
         "crypto/algorithm/rsa/0389be9ebbe1fdde",
         "crypto/algorithm/rsa/2a54d5912b080796",
-        "crypto/algorithm/rsa/51c82444e4dd16e6",
         "crypto/algorithm/rsa/a20b4a0e9427e9ad",
         "crypto/algorithm/rsa/d1fc0eb442d336a8",
         "crypto/algorithm/sha-256/b8a43d2b41e8cc32",
@@ -7654,7 +7979,9 @@
         "crypto/protocol/tls-1.2/d76d00f234c8badc",
         "crypto/protocol/tls-1.3/0f70bbe2e1f639f9",
         "crypto/protocol/tls-1.3/f032f4ae15b50643",
+        "crypto/related-crypto-material/key/46a8e12e253470d2",
         "crypto/related-crypto-material/key/7bcee57c6cb7a3fa",
+        "crypto/related-crypto-material/key/b76b9ec37b1c3766",
         "library/registry.example.gov.in/payments-api:4.2.0/openssl@3.0.13"
       ]
     },
@@ -7707,9 +8034,21 @@
       ]
     },
     {
+      "ref": "crypto/related-crypto-material/key/46a8e12e253470d2",
+      "dependsOn": [
+        "crypto/algorithm/ecdsa/2eb2156dd8c1c72c"
+      ]
+    },
+    {
       "ref": "crypto/related-crypto-material/key/7bcee57c6cb7a3fa",
       "dependsOn": [
         "crypto/algorithm/rsa/da9f59888ed4865d"
+      ]
+    },
+    {
+      "ref": "crypto/related-crypto-material/key/b76b9ec37b1c3766",
+      "dependsOn": [
+        "crypto/algorithm/rsa/51c82444e4dd16e6"
       ]
     }
   ]

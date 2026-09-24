@@ -60,6 +60,8 @@ Each phase is one commit in the history.
     audit log of every API call that the server verifies before starting.
 16. **Post-quantum TLS**: the server speaks TLS 1.3 with X25519MLKEM768 first, and mutual TLS
     with client certificates pinned to users.
+17. **Key custody**: keys held in HSMs, smart cards, TPMs and cloud key services are inventoried
+    from the configuration that references them, with migration advice for the device.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -72,8 +74,7 @@ In order of value to an operator:
 
 1. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
    read-only.
-2. **HSM/TPM discovery** through PKCS#11.
-3. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
+2. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
 
 ---
 
@@ -82,7 +83,7 @@ In order of value to an operator:
 1. **The problem in one line**: "A quantum computer will break today's public-key
    cryptography, and adversaries are recording traffic now. First you must find all of it,
    and know which of it matters."
-2. **Scan** the demo estate in the cockpit: 47 assets from code, config, certificates, keys,
+2. **Scan** the demo estate in the cockpit: 49 assets from code, config, certificates, keys,
    Terraform, a container image and a packet capture.
 3. **Overview**: the Mosca timeline shows which assets are already late.
 4. **The path**: open RSA-2048: `POST /v1/payments` → `create_payment` → `tokenize_card`, card

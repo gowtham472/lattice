@@ -65,7 +65,8 @@ pub struct Effort {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EffortFactor {
-    /// `action`, `surface`, `agility`, `spread` or `criticality`.
+    /// `action`, `surface`, `agility`, `spread`, `criticality`, and `custody` for keys held in
+    /// hardware or a key service.
     pub name: String,
     /// Person-weeks for `action`, a multiplier for the rest.
     pub value: f64,
@@ -178,7 +179,27 @@ pub fn estimate(
         .copied()
         .unwrap_or(1.0);
 
-    let person_weeks = base * surface_factor * agility_factor * spread_factor * criticality_factor;
+    let custody = match &asset.finding {
+        Finding::RelatedCryptoMaterial(material) => material.custody.as_ref(),
+        _ => None,
+    };
+    let custody_factor = custody.map(|custody| {
+        (
+            weights
+                .custody
+                .get(custody.kind.as_str())
+                .copied()
+                .unwrap_or(1.0),
+            format!("held in a {}", custody.kind.mechanism()),
+        )
+    });
+
+    let person_weeks = base
+        * surface_factor
+        * agility_factor
+        * spread_factor
+        * criticality_factor
+        * custody_factor.as_ref().map_or(1.0, |(factor, _)| *factor);
     let factor = |name: &str, value: f64, reason: String| EffortFactor {
         name: name.into(),
         value: round(value, 2),
@@ -211,7 +232,10 @@ pub fn estimate(
                 criticality_factor,
                 format!("protects {} data", criticality.as_str()),
             ),
-        ],
+        ]
+        .into_iter()
+        .chain(custody_factor.map(|(value, reason)| factor("custody", value, reason)))
+        .collect(),
     })
 }
 
@@ -276,6 +300,10 @@ pub fn recommend(
         "65"
     };
     match &asset.finding {
+        Finding::RelatedCryptoMaterial(material) if material.custody.is_some() => {
+            let custody = material.custody.as_ref().expect("guarded");
+            custody_recommendation(material, custody, assessment, signature_set)
+        }
         Finding::RelatedCryptoMaterial(material) if material.material_type == MaterialType::PrivateKey && !material.encrypted => Recommendation {
             action: "rotate".into(),
             target: "a new key held in an HSM or cloud KMS".into(),
@@ -440,6 +468,73 @@ pub type PlanInput<'a> = (
     &'a Recommendation,
     Option<&'a Effort>,
 );
+
+/// Advice for a key held in hardware or a key service: the replacement has to be generated
+/// where the key lives, so the device or service must support the post-quantum algorithms.
+fn custody_recommendation(
+    material: &lattice_core::MaterialFinding,
+    custody: &lattice_core::Custody,
+    assessment: &Assessment,
+    signature_set: &str,
+) -> Recommendation {
+    use lattice_core::CustodyKind;
+    let place = custody.kind.mechanism();
+    let Some(algorithm) = &material.algorithm else {
+        return Recommendation {
+            action: "review".into(),
+            target: format!(
+                "the key's algorithm in the {place}, and the {place}'s post-quantum support"
+            ),
+            rationale: format!(
+                "The key is referenced here but held in a {place}, so LATTICE cannot see its type. \
+                 Inventory it on the device, and confirm the firmware or service supports ML-KEM \
+                 and ML-DSA (FIPS 203/204) before its replacement is due."
+            ),
+            size_delta: None,
+        };
+    };
+    if assessment.quantum_breakability <= 0.2 && !assessment.broken_now {
+        return Recommendation {
+            action: "retain".into(),
+            target: format!("{algorithm} in the {place}"),
+            rationale: "Held in hardware or a key service and adequate against quantum attack."
+                .into(),
+            size_delta: None,
+        };
+    }
+    let signing = format!("ML-DSA-{signature_set} (FIPS 204)");
+    let encrypting = "ML-KEM-768 (FIPS 203)";
+    let replacement = match custody.usage {
+        Some(lattice_core::KeyUsage::Sign) => signing,
+        Some(lattice_core::KeyUsage::Encrypt) => encrypting.into(),
+        None => match Registry::active()
+            .get(&algorithm.id)
+            .map(|spec| spec.primitive)
+        {
+            Some(Primitive::Signature) => signing,
+            Some(Primitive::KeyAgree | Primitive::Kem) => encrypting.into(),
+            // RSA signs or decrypts; nothing here says which
+            _ => format!("{signing} signing or {encrypting} decryption"),
+        },
+    };
+    let where_ = match custody.kind {
+        CustodyKind::CloudKms | CustodyKind::CloudHsm => {
+            "when the provider offers it as a key spec; plan the switch and the re-signing or re-wrapping of what the key protects"
+        }
+        CustodyKind::Pkcs11Token | CustodyKind::Tpm => {
+            "which needs device firmware that supports it: confirm the vendor roadmap now, hardware refresh cycles are long"
+        }
+    };
+    Recommendation {
+        action: "replace".into(),
+        target: format!("{replacement} key generated inside the {place}"),
+        rationale: format!(
+            "{algorithm} is broken by a quantum computer and the key never leaves the {place}, so its \
+             replacement must be generated there too, {where_}."
+        ),
+        size_delta: None,
+    }
+}
 
 /// Orders assessed assets into migration waves: urgent quick wins first (high priority, easy to
 /// change), then urgent hard changes, then the rest by priority. Retained assets are excluded.

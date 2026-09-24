@@ -21,7 +21,8 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 | Runtime evidence from packet captures: TLS and SSH negotiated algorithms, TLS 1.2 certificates | Delivered | (i), (ii) |
 | Runtime evidence from eBPF hooks on crypto-library calls | Planned | (i), (ii) |
 | Pulling images from registries | Not planned (air-gapped); scan exported archives | (i) |
-| HSM/TPM discovery via PKCS#11 | Planned | (i) |
+| Keys held in hardware or key services: PKCS#11 URIs, OpenSSL engine and TPM handle references, Java PKCS#11 keystores, Vault seals, TPM2-sealed LUKS volumes, TPM-wrapped key files, cloud KMS and HSM keys (with their signing or decryption use); CycloneDX `securedBy` | Delivered | (i) |
+| Live enumeration of PKCS#11 tokens and TPMs | Not planned: it means loading vendor code into the scanner; custody is found from the configuration that uses the keys | (i) |
 | Normalisation to canonical assets, with dependency, refinement and protocol-setting merges | Delivered | (i) |
 
 ---
@@ -108,7 +109,7 @@ vulnerable and live ones, (iii) assess risk, (iv) recommend migration.
 Run against [`examples/demo-estate`](../examples/demo-estate), a six-service estate with a
 container image and a packet capture of real OpenSSL handshakes:
 
-1. `lattice scan` inventories 47 assets across source, configuration, certificates, keys,
+1. `lattice scan` inventories 49 assets across source, configuration, certificates, keys,
    Terraform, the image and the capture, and writes a schema-valid CBOM.
 2. The graph traces `POST /v1/payments` → `create_payment` → `tokenize_card` → RSA-2048,
    protecting card data with a 10-year secrecy: "already late" by Mosca.

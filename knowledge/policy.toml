@@ -64,6 +64,9 @@ agility_penalty = 2.0
 spread = 0.5
 # Validation and change control for what the asset protects.
 criticality = { low = 1.0, medium = 1.0, high = 1.25, critical = 1.5 }
+# Keys held in hardware or a key service: the replacement is generated there, so device firmware or
+# the provider's key specs gate the change.
+custody = { pkcs11-token = 1.5, tpm = 1.5, cloud-hsm = 1.2, cloud-kms = 0.8 }
 
 # The regulatory timeline the roadmap is scheduled against. The DST Task Force report
 # "Implementation of a Quantum Safe Ecosystem in India" (Feb 2026) sets 2027–2029 for migrating

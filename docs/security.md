@@ -73,6 +73,9 @@ analyses (see [decisions.md §9](decisions.md)).
 - **Metadata only.** A private key is recorded as its type, size, format, whether it is
   encrypted, and a BLAKE3 fingerprint; the key bytes never reach a report. Password-protected
   keystores are recorded as present and never opened. *Enforced.*
+- **No secrets from key references.** When configuration names a key held in hardware, only the
+  token, object label, engine or handle is recorded; the query part of a PKCS#11 URI (where
+  `pin-value` lives) and Vault seal PINs are never read into a finding. *Enforced (tested).*
 - **No source in reports.** Evidence carries the matched API token and location, not code.
   *Enforced.*
 - **Relative paths only.** Reports never contain the absolute path of the scan root.

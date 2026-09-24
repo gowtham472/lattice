@@ -111,6 +111,7 @@ fn inventory() -> Vec<Observation> {
                 format: "PEM".into(),
                 encrypted: false,
                 identity: "blake3:0123456789abcdef".into(),
+                custody: None,
             }),
         ),
     ]

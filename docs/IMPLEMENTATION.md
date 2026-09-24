@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 202 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 211 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -29,10 +29,10 @@ flowchart TD
 | Crate | Responsibility | Tests |
 |---|---|---|
 | `lattice-core` | Domain model, algorithm knowledge base, name parsers, normalisation, policy | 46 |
-| `lattice-collectors` | Source (tree-sitter, 9 languages), binary (ELF/PE/Mach-O symbols, constant tables, OIDs), PKI (X.509, PKCS#1/#8, SEC1, OpenSSH), config and Terraform, container images (docker save, OCI, tarballs), packet captures (pcap, pcapng: TLS, SSH); walker, sandbox, incremental cache | 69 |
+| `lattice-collectors` | Source (tree-sitter, 9 languages), binary (ELF/PE/Mach-O symbols, constant tables, OIDs), PKI (X.509, PKCS#1/#8, SEC1, OpenSSH), config and Terraform, container images (docker save, OCI, tarballs), packet captures (pcap, pcapng: TLS, SSH); walker, sandbox, incremental cache, key custody (PKCS#11, TPM, Vault, crypttab, cloud KMS/HSM) | 74 |
 | `lattice-classify` | Data classification from identifiers, parameters, functions, paths | 8 |
 | `lattice-graph` | Crypto graph, entry-point reachability, exposure, data inheritance | 5 |
-| `lattice-risk` | Assessor (QB, threat, HNDL/TNFL index, CAS, Mosca range, tiers) and advisor (recommendations, FIPS 203/204 size deltas, roadmap waves, effort estimates, the plan against the timeline); property tests of the scoring invariants | 19 |
+| `lattice-risk` | Assessor (QB, threat, HNDL/TNFL index, CAS, Mosca range, tiers) and advisor (recommendations, FIPS 203/204 size deltas, roadmap waves, effort estimates, the plan against the timeline, custody-aware advice); property tests of the scoring invariants | 20 |
 | `lattice-cbom` | Strict CycloneDX 1.6 emitter, offline schema validation, detached ML-DSA-65 signing (CBOMs and arbitrary content) | 16 |
 | `lattice-engine` | Orchestration, traffic attribution, report, baseline comparison, signed knowledge bundles; golden CBOM of the demo estate | 12 |
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards, users and roles, hash-chained audit log, TLS 1.3 with X25519MLKEM768 and mutual TLS | 13 |
@@ -80,6 +80,7 @@ flowchart TD
 | Executive PDF report, deterministic and signed (CLI, API, cockpit) | Delivered |
 | Users and roles, hash-chained audit log | Delivered |
 | Server TLS 1.3 with X25519MLKEM768 first, mutual TLS | Delivered |
+| Key custody: keys in HSMs, TPMs and cloud key services | Delivered |
 
 ## Usage
 

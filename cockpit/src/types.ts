@@ -43,6 +43,8 @@ export type Finding =
       sizeBits?: number;
       format: string;
       encrypted: boolean;
+      /** Set when the key is held in an HSM, a TPM or a key service and only referenced. */
+      custody?: { kind: 'pkcs11-token' | 'tpm' | 'cloud-hsm' | 'cloud-kms'; detail: string; usage?: 'sign' | 'encrypt' };
       identity: string;
     };
 

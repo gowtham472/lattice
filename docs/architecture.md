@@ -325,6 +325,15 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   rules and library knowledge. Unchanged files are not parsed again; any rebuild or knowledge
   change starts afresh; only clean results are cached. Output is byte-identical with or without
   the cache (tested).
+- **Key custody.** A key in an HSM, smart card, TPM or cloud key service never appears as a file,
+  but the configuration that uses it names it. The config collector finds PKCS#11 URIs (RFC 7512,
+  dropping the query where `pin-value` lives), OpenSSL `engine:` and TPM persistent-handle
+  references, Java PKCS#11 keystores, Vault seals and TPM2 or PKCS#11 unlocks in `crypttab`; the
+  PKI collector recognises TPM-wrapped (`TSS2`) key files; Terraform KMS and Key Vault keys carry
+  their HSM backing and whether they sign or decrypt. Each becomes a key asset with its custody
+  (`securedBy` in the CBOM), so the advice is to generate the replacement inside the device or
+  service, which needs FIPS 203/204 support there, and the effort estimate carries a custody
+  factor. Nothing is loaded or asked of a device.
 - **Graceful degradation.** A collector failing on one artefact records the reason and the scan
   continues; failures are part of the report.
 - **Bounds.** File sizes, archive expansion (decompression bombs), entries, packets, flows,

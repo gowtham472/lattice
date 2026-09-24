@@ -236,6 +236,30 @@ impl Out<'_, '_> {
                 );
             }
             "OPENSSH PRIVATE KEY" => self.openssh_private_key(&block.contents, offset),
+            // tpm2-tss-engine and the OpenSSL tpm2 provider: a key blob only the TPM can unwrap
+            "TSS2 PRIVATE KEY" => {
+                let finding = Finding::RelatedCryptoMaterial(MaterialFinding {
+                    material_type: MaterialType::PrivateKey,
+                    algorithm: None,
+                    size_bits: None,
+                    format: "TSS2".into(),
+                    encrypted: true,
+                    identity: identity(&block.contents),
+                    custody: Some(lattice_core::Custody {
+                        kind: lattice_core::CustodyKind::Tpm,
+                        detail: "TPM2-wrapped key blob (usable only on the TPM that made it)"
+                            .into(),
+                        usage: None,
+                    }),
+                });
+                self.push(
+                    finding,
+                    EvidenceKind::Certificate,
+                    "pki.pem.tss2",
+                    "TPM2-wrapped private key",
+                    offset,
+                );
+            }
             _ => {}
         }
     }
@@ -413,6 +437,7 @@ impl Out<'_, '_> {
                 format: "X.509".into(),
                 encrypted: false,
                 identity: identity(der),
+                custody: None,
             }),
             EvidenceKind::Heuristic,
             "pki.x509.unknown-algorithm",
@@ -462,6 +487,7 @@ impl Out<'_, '_> {
             format: "OpenSSH".into(),
             encrypted: false,
             identity: identity(&blob),
+            custody: None,
         });
         self.push_at(
             finding,
@@ -491,6 +517,7 @@ impl Out<'_, '_> {
             format: format.into(),
             encrypted,
             identity,
+            custody: None,
         });
         let token = match material_type {
             MaterialType::PrivateKey if !encrypted => "unencrypted private key",
@@ -918,5 +945,28 @@ mod tests {
             b"-----BEGIN CERTIFICATE-----\nnot base64 at all!!\n-----END CERTIFICATE-----\n",
         );
         assert!(findings.observations.is_empty());
+    }
+
+    #[test]
+    fn tpm_wrapped_keys_are_held_by_the_tpm() {
+        let pem = b"-----BEGIN TSS2 PRIVATE KEY-----
+MIIBAjAGBgRngQUKAgEB
+-----END TSS2 PRIVATE KEY-----
+";
+        let findings = run("keys/tls.tss", pem);
+        let keys: Vec<_> = findings
+            .observations
+            .iter()
+            .filter_map(|o| match &o.finding {
+                Finding::RelatedCryptoMaterial(m) => Some(m),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(keys.len(), 1, "{keys:?}");
+        assert_eq!(
+            keys[0].custody.as_ref().map(|c| c.kind),
+            Some(lattice_core::CustodyKind::Tpm)
+        );
+        assert!(keys[0].encrypted, "only the TPM can unwrap it");
     }
 }

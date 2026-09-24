@@ -387,6 +387,7 @@ fn unencrypted_private_keys_must_be_rotated() {
             format: "PEM".into(),
             encrypted: false,
             identity: "abc".into(),
+            custody: None,
         }),
         None,
     ));
@@ -761,4 +762,88 @@ mod properties {
             prop_assert!(qb(large) <= qb(small));
         }
     }
+}
+
+fn held_key(algorithm: Option<AlgorithmRef>, usage: Option<lattice_core::KeyUsage>) -> CryptoAsset {
+    single(observation(
+        Surface::Config,
+        Finding::RelatedCryptoMaterial(MaterialFinding {
+            material_type: MaterialType::PrivateKey,
+            algorithm,
+            size_bits: None,
+            format: "reference".into(),
+            encrypted: false,
+            identity: "held".into(),
+            custody: Some(lattice_core::Custody {
+                kind: lattice_core::CustodyKind::Pkcs11Token,
+                detail: "PKCS#11 token \"ca\", object \"root\"".into(),
+                usage,
+            }),
+        }),
+        None,
+    ))
+}
+
+fn algorithm_ref(id: &str, bits: u32) -> AlgorithmRef {
+    AlgorithmRef::with_params(
+        id,
+        Params {
+            key_bits: Some(bits),
+            ..Params::default()
+        },
+    )
+}
+
+#[test]
+fn keys_in_hardware_are_migrated_in_the_hardware() {
+    let ctx = context("financial", 1.0);
+    let signing = held_key(
+        Some(algorithm_ref("rsa", 2048)),
+        Some(lattice_core::KeyUsage::Sign),
+    );
+    let assessment = assessor().assess(&signing, &ctx);
+    assert!(
+        !assessment
+            .classical_reasons
+            .iter()
+            .any(|r| r.contains("unencrypted private key")),
+        "a referenced hardware key is not a key file: {:?}",
+        assessment.classical_reasons
+    );
+    let advice = recommend(&signing, &assessment, 10.0);
+    assert_eq!(advice.action, "replace");
+    assert!(
+        advice.target.starts_with("ML-DSA-65")
+            && advice.target.ends_with("inside the PKCS#11 token"),
+        "{}",
+        advice.target
+    );
+    assert!(
+        advice.rationale.contains("firmware"),
+        "{}",
+        advice.rationale
+    );
+
+    let unknown = held_key(None, None);
+    let assessment = assessor().assess(&unknown, &ctx);
+    let advice = recommend(&unknown, &assessment, 10.0);
+    assert_eq!(
+        advice.action, "review",
+        "the device holds the key type: {advice:?}"
+    );
+
+    let effort = estimate(
+        &signing,
+        &assessor().assess(&signing, &ctx),
+        &recommend(&signing, &assessor().assess(&signing, &ctx), 10.0),
+        Criticality::High,
+        Policy::active(),
+    )
+    .unwrap();
+    let custody = effort
+        .factors
+        .iter()
+        .find(|f| f.name == "custody")
+        .expect("a custody factor");
+    assert_eq!(custody.value, 1.5);
 }

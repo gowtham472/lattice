@@ -82,6 +82,21 @@ pub struct EffortPolicy {
     pub agility_penalty: f64,
     pub spread: f64,
     pub criticality: BTreeMap<String, f64>,
+    /// Multiplier for keys held in hardware or a key service, by custody kind.
+    #[serde(default = "default_custody")]
+    pub custody: BTreeMap<String, f64>,
+}
+
+fn default_custody() -> BTreeMap<String, f64> {
+    [
+        ("pkcs11-token", 1.5),
+        ("tpm", 1.5),
+        ("cloud-hsm", 1.2),
+        ("cloud-kms", 0.8),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect()
 }
 
 impl Default for EffortPolicy {
@@ -113,6 +128,7 @@ impl Default for EffortPolicy {
                 ("high", 1.25),
                 ("critical", 1.5),
             ]),
+            custody: default_custody(),
         }
     }
 }
@@ -247,6 +263,7 @@ impl Policy {
             .values()
             .chain(e.surface.values())
             .chain(e.criticality.values())
+            .chain(e.custody.values())
             .chain([&e.agility_penalty, &e.spread]);
         for factor in factors {
             if !factor.is_finite() || *factor < 0.0 || *factor > 1000.0 {

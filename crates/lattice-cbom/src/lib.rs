@@ -567,9 +567,14 @@ fn asset_component(assessed: &AssessedAsset<'_>, all: &[AssessedAsset<'_>]) -> C
                     .and_then(|algorithm| dependency_ref(asset, algorithm, all)),
                 size: material.size_bits,
                 format: (!material.format.is_empty()).then(|| material.format.clone()),
-                secured_by: material.encrypted.then(|| SecuredBy {
-                    mechanism: "encrypted container".into(),
-                }),
+                secured_by: match &material.custody {
+                    Some(custody) => Some(SecuredBy {
+                        mechanism: custody.kind.mechanism().into(),
+                    }),
+                    None => material.encrypted.then(|| SecuredBy {
+                        mechanism: "encrypted container".into(),
+                    }),
+                },
             }),
             ..CryptoProperties::empty("related-crypto-material")
         },
@@ -770,6 +775,12 @@ fn asset_properties(assessed: &AssessedAsset<'_>) -> Vec<Property> {
         due_year,
     } = assessed;
     let mut p = Properties::default();
+    if let Finding::RelatedCryptoMaterial(material) = &asset.finding
+        && let Some(custody) = &material.custody
+    {
+        p.add("custody", custody.kind.as_str())
+            .add("custody-detail", &custody.detail);
+    }
     p.add("component", &asset.component)
         .add(
             "surfaces",

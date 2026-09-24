@@ -313,6 +313,7 @@ impl Assessor<'_> {
                     .map_or((ClassicalStatus::Acceptable, Vec::new()), strength);
                 if material.material_type == lattice_core::MaterialType::PrivateKey
                     && !material.encrypted
+                    && material.custody.is_none()
                 {
                     status = status.max(ClassicalStatus::Disallowed);
                     reasons.push(
