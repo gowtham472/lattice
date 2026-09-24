@@ -1,6 +1,6 @@
 # Implementation status
 
-This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 211 tests pass. The cockpit typechecks under strict TypeScript.
+This document tracks the code against the architecture in [`architecture.md`](architecture.md). A capability is marked delivered only when it is executable and covered by tests. The workspace builds with `cargo clippy --workspace --all-targets -- -D warnings` clean, and all 212 tests pass. The cockpit typechecks under strict TypeScript.
 
 ## Pipeline as built
 
@@ -38,7 +38,7 @@ flowchart TD
 | `lattice-server` | HTTP API, scan queue, persistence, cockpit hosting, request guards, users and roles, hash-chained audit log, TLS 1.3 with X25519MLKEM768 and mutual TLS | 13 |
 | `lattice-report` | Executive PDF: a deterministic PDF writer (standard fonts, exact metrics) and the report layout, rendered from the report JSON | 5 |
 | `lattice-sandbox` | Process confinement: Landlock filesystem rules, seccomp system-call filter | via `sandbox-check` |
-| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `report`, `serve`, `user`, `audit`, `sandbox-check`, `knowledge` | 9 end-to-end |
+| `lattice-cli` | `scan`, `ci`, `keygen`, `sign`, `verify`, `validate`, `report`, `serve`, `user`, `audit`, `sandbox-check`, `knowledge` | 10 end-to-end |
 | `cockpit` | React 19 + TypeScript: overview and Mosca timeline, inventory, explanation drawer, exposure graph, roadmap, compare, scan launcher | typecheck |
 
 ## Guarantees enforced by tests
@@ -52,7 +52,7 @@ flowchart TD
 - **Tamper evident.** The detached ML-DSA-65 signature covers the exact CBOM bytes plus a per-component BLAKE3 chain. Verification names the altered, removed or reordered component, rejects untrusted keys, and rejects re-hashed forgeries.
 - **Server hardening.** Loopback by default; a non-loopback bind is refused without credentials. Named users with viewer, operator and admin roles (401 for unknown tokens, 403 for too weak a role); every API call is appended to a hash-chained audit log the server verifies before starting. TLS 1.3 only, X25519MLKEM768 first, optional mutual TLS; non-loopback addresses are never served over plain HTTP by default. Host-header checks defeat DNS rebinding. Scans are confined to operator-declared roots (canonicalised, symlink escapes refused). Strict CSP with no inline script, `no-store` on the API, 16 KiB request bodies, unknown fields rejected, bounded scan queue, one scan at a time.
 - **Fuzzed.** Eight `cargo-fuzz` targets cover every parser of hostile input (`fuzz/`, `scripts/fuzz.py`).
-- **Stable output.** The demo estate's CBOM is compared byte for byte with a reviewed golden file.
+- **Stable output.** The demo estate's CBOM is compared byte for byte with a reviewed golden file, and a scan of OpenSSL 3.5.5 (1,033 assets) with a reviewed summary.
 - **CI contract.** Exit code 0 means clean, 1 a regression at or above `--fail-on`, 2 a usage or scan error, 3 a verification failure. A baseline can be required to be signed.
 
 ## Milestones
@@ -81,6 +81,7 @@ flowchart TD
 | Users and roles, hash-chained audit log | Delivered |
 | Server TLS 1.3 with X25519MLKEM768 first, mutual TLS | Delivered |
 | Key custody: keys in HSMs, TPMs and cloud key services | Delivered |
+| CI: tests, cockpit, fuzzing, OpenSSL 3.5.5 golden scan | Delivered |
 
 ## Usage
 

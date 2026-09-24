@@ -95,5 +95,9 @@ cd cockpit && npm run typecheck
 scripts/fuzz.py -t 300                  # every parser, 5 minutes each (nightly + cargo-fuzz)
 ```
 
+CI (`.github/workflows/ci.yml`) runs all of the above on every push, plus a scan of OpenSSL 3.5.5
+compared against a reviewed summary (`scripts/openssl-golden.py --lattice target/release/lattice`)
+and a fuzz of every parser (longer nightly).
+
 The demo estate's CBOM is a golden file: when a change to it is intended, regenerate it with
 `LATTICE_BLESS=1 cargo test -p lattice-engine --test golden` and review the diff.

@@ -64,7 +64,8 @@ analyses (see [decisions.md §9](decisions.md)).
 - **Fuzzing** of every parser of hostile input with `cargo-fuzz` (`fuzz/`, run by
   `scripts/fuzz.py`): certificates and keys, configuration, source, binaries, packet captures,
   container archives and algorithm names, without the panic isolation that contains them in a
-  scan. *Enforced* before each release; continuous fuzzing in CI is *Planned*.
+  scan. *Enforced*: briefly on every push and for fifteen minutes per target nightly in CI
+  (`.github/workflows/ci.yml`), with corpora carried between runs.
 
 ---
 

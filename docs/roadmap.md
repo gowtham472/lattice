@@ -62,6 +62,8 @@ Each phase is one commit in the history.
     with client certificates pinned to users.
 17. **Key custody**: keys held in HSMs, smart cards, TPMs and cloud key services are inventoried
     from the configuration that references them, with migration advice for the device.
+18. **CI and the OpenSSL golden scan**: every push is formatted, linted, tested, fuzzed and
+    compared against a reviewed scan of OpenSSL 3.5.5; parsers are fuzzed for longer nightly.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -74,7 +76,6 @@ In order of value to an operator:
 
 1. **eBPF runtime collector**: observe crypto-library calls on live hosts, opt-in and
    read-only.
-2. **Continuous fuzzing** in CI and a golden CBOM of an OpenSSL release.
 
 ---
 

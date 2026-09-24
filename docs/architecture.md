@@ -354,6 +354,15 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   every language, binaries, packet captures, container archives and algorithm names. The targets
   call the parsers without the per-file panic isolation a scan uses, so a panic is a finding, not
   a contained failure. `scripts/fuzz.py` seeds them from the repository and runs them.
+- **A golden scan of OpenSSL.** `scripts/openssl-golden.py` downloads a pinned OpenSSL release
+  (checked against its SHA-256), scans it under the sandbox, validates the CBOM and compares a
+  one-line-per-asset summary with `crates/lattice-engine/tests/golden/openssl-3.5.5.tsv` (1,033
+  assets: legacy ciphers, RSA and ECC, and OpenSSL's own ML-KEM, ML-DSA and SLH-DSA). It
+  exercises detection at the scale of a real code base and shows any change as a reviewable diff.
+- **CI** (`.github/workflows/ci.yml`): format, lint and tests; the cockpit's typecheck and build;
+  the OpenSSL golden scan with a release build; a short fuzz of every parser on each push and a
+  long one nightly, with corpora carried between runs and crashing inputs kept as artefacts.
+  Actions are pinned to commit SHAs.
 
 ---
 
@@ -365,5 +374,4 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
 | Live scan progress over WebSocket | Not built; the cockpit polls |
-| A golden CBOM of an OpenSSL release | Planned; the demo estate has one today |
 | Windows and macOS builds | Not built; the sandbox is Linux-only |

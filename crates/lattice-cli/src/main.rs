@@ -970,7 +970,7 @@ fn verify_bytes(
     public_key: &Path,
 ) -> Result<SignatureFile> {
     let path = signature_path(cbom, signature);
-    let signature: SignatureFile = serde_json::from_str(&read_text(&path)?)
+    let signature: SignatureFile = serde_json::from_str(&read_document(&path)?)
         .with_context(|| format!("{} is not a LATTICE signature file", path.display()))?;
     let trusted = signing::decode_public_key(&read_text(public_key)?)?;
     signing::verify(document, &signature, &trusted)?;
@@ -981,7 +981,7 @@ fn verify(args: VerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
     let document =
         fs::read(&args.cbom).with_context(|| format!("reading {}", args.cbom.display()))?;
     let signature_file = signature_path(&args.cbom, args.signature.as_deref());
-    let signature_text = read_text(&signature_file)?;
+    let signature_text = read_document(&signature_file)?;
     let key_text = read_text(&args.public_key)?;
     // everything is in memory: the parsing and verification below need no filesystem at all
     confine(sandbox, &[], &[])?;
@@ -1175,7 +1175,7 @@ fn audit_verify(args: AuditVerifyArgs, sandbox: lattice_sandbox::Mode) -> Result
 }
 
 fn validate(args: ValidateArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
-    let text = read_text(&args.cbom)?;
+    let text = read_document(&args.cbom)?;
     confine(sandbox, &[], &[])?;
     let document: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("{} is not JSON", args.cbom.display()))?;
@@ -1639,12 +1639,21 @@ fn pretty(value: &impl serde::Serialize) -> Result<Vec<u8>> {
 
 /// Key and signature files are small; refuse anything that is not, rather than read it whole.
 fn read_text(path: &Path) -> Result<String> {
-    const LIMIT: u64 = 1024 * 1024;
+    read_limited(path, 1024 * 1024)
+}
+
+/// CBOMs and their signatures grow with the estate: a large one is tens of megabytes. The cap
+/// only stops a runaway file from exhausting memory.
+fn read_document(path: &Path) -> Result<String> {
+    read_limited(path, 1024 * 1024 * 1024)
+}
+
+fn read_limited(path: &Path, limit: u64) -> Result<String> {
     let size = fs::metadata(path)
         .with_context(|| format!("reading {}", path.display()))?
         .len();
-    if size > LIMIT {
-        bail!("{} is {size} bytes; expected under {LIMIT}", path.display());
+    if size > limit {
+        bail!("{} is {size} bytes; expected under {limit}", path.display());
     }
     fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
 }

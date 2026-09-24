@@ -726,3 +726,54 @@ fn issued_tokens_are_enforced_and_audited() {
         3
     );
 }
+
+#[test]
+fn large_cboms_validate_sign_and_verify() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    project(root);
+    let scan = lattice(
+        &[
+            "scan",
+            "target-app",
+            "-o",
+            "app.cbom.json",
+            "--report",
+            "app.report.json",
+            "--quiet",
+        ],
+        root,
+    );
+    assert_eq!(code(&scan), 0, "{}", text(&scan.stderr));
+    // real estates produce CBOMs of many megabytes; whitespace keeps this one valid JSON
+    let mut cbom = fs::read(root.join("app.cbom.json")).unwrap();
+    let close = cbom.iter().rposition(|b| *b == b'}').unwrap();
+    cbom.splice(close..close, std::iter::repeat_n(b' ', 3 * 1024 * 1024));
+    fs::write(root.join("big.cbom.json"), &cbom).unwrap();
+
+    let validated = lattice(&["validate", "big.cbom.json"], root);
+    assert_eq!(code(&validated), 0, "{}", text(&validated.stderr));
+    assert_eq!(code(&lattice(&["keygen", "--out-dir", "keys"], root)), 0);
+    let signed = lattice(
+        &[
+            "sign",
+            "big.cbom.json",
+            "--key",
+            "keys/lattice-signing.key",
+            "--public-key",
+            "keys/lattice-signing.pub",
+        ],
+        root,
+    );
+    assert_eq!(code(&signed), 0, "{}", text(&signed.stderr));
+    let verified = lattice(
+        &[
+            "verify",
+            "big.cbom.json",
+            "--public-key",
+            "keys/lattice-signing.pub",
+        ],
+        root,
+    );
+    assert_eq!(code(&verified), 0, "{}", text(&verified.stderr));
+}
