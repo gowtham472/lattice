@@ -46,7 +46,7 @@ the public half separately from the release (a website, a signed commit, an out-
 ## Windows
 
 `scripts/release.sh` builds the Windows package with the others. Unzip it anywhere and run
-`bin\lattice.exe`; `serve` finds the cockpit in `share\lattice\cockpit` beside it. To build
+`bin\lattice.exe`, with the cockpit compiled in (a copy is in `share\lattice\cockpit`). To build
 only the binary:
 
 ```bash
@@ -81,7 +81,9 @@ lattice --version
 lattice sandbox-check
 ```
 
-`serve` finds the cockpit at `<prefix>/share/lattice/cockpit` next to the binary.
+`serve` uses the cockpit compiled into the binary; `--ui <dir>` serves another build instead. A copy
+also ships at `<prefix>/share/lattice/cockpit`, which a build without the cockpit compiled in
+finds next to the binary.
 
 ### As a service
 

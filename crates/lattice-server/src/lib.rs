@@ -27,6 +27,7 @@
 
 pub mod access;
 pub mod audit;
+pub mod cockpit;
 mod security;
 mod store;
 pub mod tls;
@@ -95,7 +96,8 @@ pub struct ServerConfig {
     /// Named users with roles, from a users file.
     pub users: Vec<User>,
     pub data_dir: Option<PathBuf>,
-    /// Built cockpit (`cockpit/dist`). Without it only the API is served.
+    /// A built cockpit on disk (`cockpit/dist`), served instead of the one compiled in. Without
+    /// either, only the API is served.
     pub ui_dir: Option<PathBuf>,
     /// Template for every scan; the timestamp and subject are set per scan.
     pub engine: Config,
@@ -236,6 +238,7 @@ pub fn app(config: ServerConfig) -> Result<Router, ServerError> {
             let index = dir.join("index.html");
             router.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)))
         }
+        None if cockpit::embedded() => router.fallback(cockpit::serve),
         None => router.fallback(|| async {
             ApiError::new(
                 StatusCode::NOT_FOUND,

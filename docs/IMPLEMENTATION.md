@@ -99,7 +99,7 @@ lattice sign service.cbom.json --key keys/lattice-signing.key --public-key keys/
 lattice verify service.cbom.json --public-key keys/lattice-signing.pub
 lattice validate service.cbom.json
 lattice ci ./service --baseline service.cbom.json --trusted-key keys/lattice-signing.pub --fail-on high
-lattice serve --root estate=/srv/code --ui cockpit/dist
+lattice serve --root estate=/srv/code
 ```
 
 ## Sandbox and releases

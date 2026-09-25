@@ -59,7 +59,7 @@ lattice audit verify .lattice/audit.jsonl
 lattice ci examples/demo-estate --baseline demo.cbom.json --trusted-key keys/lattice-signing.pub --fail-on high
 
 # cockpit and API on http://127.0.0.1:7443; scans can read only the named roots
-lattice serve --root demo=examples/demo-estate --ui cockpit/dist
+lattice serve --root demo=examples/demo-estate     # the cockpit is compiled into the binary
 ```
 
 On Linux every command that reads untrusted content confines itself first (Landlock: targets

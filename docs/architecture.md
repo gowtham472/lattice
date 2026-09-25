@@ -13,7 +13,7 @@ separately in §12, so nothing below is aspirational.
 |------------|--------------------------------|
 | **Air-gapped**: NTRO estates cannot phone home | No network client in the scan path. The knowledge base, rules and risk policy are compiled into the binary as versioned TOML and updated by signed knowledge bundles carried in. Images and captures are read from files, never pulled. |
 | **Read-only and safe** | Targets are parsed, never executed. The process confines itself (Landlock + seccomp) before reading untrusted content. |
-| **Few artefacts** | One statically linked binary (musl) plus the cockpit's static files. No database or external service. |
+| **Few artefacts** | One statically linked binary (musl) with the cockpit compiled in. No database or external service. |
 | **Tamper-evident** | CBOMs are signed with ML-DSA-65 (FIPS 204) in a detached signature with a per-component BLAKE3 chain. |
 | **Reproducible** | The same input, knowledge version and `SOURCE_DATE_EPOCH` give byte-identical CBOMs and reports. |
 

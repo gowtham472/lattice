@@ -1518,8 +1518,15 @@ fn serve(args: ServeArgs, sandbox: lattice_sandbox::Mode) -> Result<()> {
     engine.scan.max_archive_bytes = args.max_archive_bytes;
     engine.scan.archive_timeout = Duration::from_secs(args.archive_timeout.max(1));
     engine.scan.cache = open_cache(args.cache.as_deref())?;
-    let ui = args.ui.or_else(installed_cockpit);
-    if ui.is_none() {
+    // an explicit --ui wins; then the cockpit compiled in; then one installed beside the binary
+    let ui = args.ui.or_else(|| {
+        if lattice_server::cockpit::embedded() {
+            None
+        } else {
+            installed_cockpit()
+        }
+    });
+    if ui.is_none() && !lattice_server::cockpit::embedded() {
         eprintln!(
             "lattice: cockpit not found (build it with `npm run build` in cockpit/ or pass --ui); serving the API only"
         );
