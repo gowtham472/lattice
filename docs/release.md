@@ -65,7 +65,7 @@ may block it until it is signed or allowed.
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
-lattice verify lattice-0.1.0-x86_64-unknown-linux-musl.sbom.cdx.json --public-key release.pub
+lattice verify lattice-1.0.0-x86_64-unknown-linux-musl.sbom.cdx.json --public-key release.pub
 ```
 
 The signature covers the SBOM, and the SBOM's subject carries the archive's SHA-256: a valid
@@ -75,8 +75,8 @@ Verification takes the trusted key as an argument and never trusts a key shipped
 ## Installing
 
 ```bash
-tar -xzf lattice-0.1.0-x86_64-unknown-linux-musl.tar.gz
-sudo cp -r lattice-0.1.0-x86_64-unknown-linux-musl/{bin,share,lib} /usr/
+tar -xzf lattice-1.0.0-x86_64-unknown-linux-musl.tar.gz
+sudo cp -r lattice-1.0.0-x86_64-unknown-linux-musl/{bin,share,lib} /usr/
 lattice --version
 lattice sandbox-check
 ```
@@ -109,8 +109,8 @@ its own sandbox with `--sandbox required`, so it refuses to start unconfined.
 ### As a container
 
 ```bash
-docker build -f packaging/Dockerfile -t lattice:0.1.0 .
-docker run --rm -v "$PWD/estate:/estate:ro" -v "$PWD/out:/out" lattice:0.1.0 \
+docker build -f packaging/Dockerfile -t lattice:1.0.0 .
+docker run --rm -v "$PWD/estate:/estate:ro" -v "$PWD/out:/out" lattice:1.0.0 \
     scan /estate -o /out/estate.cbom.json --report /out/estate.report.json
 ```
 
