@@ -128,3 +128,23 @@ Running `examples/demo-estate` end to end through the cockpit exposed and fixed:
 - Mosca applies only to assets a quantum computer actually breaks (breakability ≥ 0.5): SHA-256 and AES-256 keep an adequate margin.
 - Estates without a root manifest make each top-level directory a component.
 - The server re-stamps the assessment year per scan.
+
+## Performance on real code
+
+Release build, `lattice scan` with the sandbox enforced, 16 cores and 6 GiB (WSL 2), 2026-09-25.
+The cached rescan (`--cache`) wrote a byte-identical CBOM in every case.
+
+| Corpus | Files | Size | Assets (quantum-vulnerable) | Cold scan | Peak memory | Cached rescan |
+|---|---|---|---|---|---|---|
+| `examples/demo-estate` | 19 | 18 KB | 49 (34) | 0.18 s | 23 MB | - |
+| OpenSSL 3.5.5 source | 5,730 | 139 MiB | 1,033 (876) | 2.9 s | 254 MiB | 1.5 s |
+| Go 1.27.1 toolchain (source and binaries) | 15,639 | 275 MiB | 559 (525) | 16.1 s | 1.1 GiB | 12.6 s |
+| Temurin JDK 25 | 194 | 303 MiB | 3 (3) | 0.7 s | 108 MiB | 0.5 s |
+
+The JDK's own cryptography sits in its `lib/modules` image (jimage), which is not unpacked, so
+only its native libraries are seen; Java applications are covered by source scanning and by
+`lattice trace --jvm`.
+
+`scripts/demo.sh --no-pause` runs the whole presentation (sandbox check, scan, schema
+validation, signing, tamper detection, the CI gate, a policy change, reproducibility) and fails
+on any unexpected exit code.
