@@ -71,6 +71,8 @@ Each phase is one commit in the history.
 21. **Live progress**: scans stream their progress to the cockpit and the terminal.
 22. **Windows build**: cross-compiled with zig, identical output to Linux, process mitigations
     as its sandbox.
+23. **Java tracing**: the JCA services, TLS handshakes and certificates of running JVMs, through
+    their own Flight Recorder, with JSSE's setup lookups ignored.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).

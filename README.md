@@ -44,6 +44,7 @@ lattice validate demo.cbom.json
 sudo lattice trace --duration 300 -o estate/payments-api/prod-1.lattice-trace.json
 lattice trace --dry-run      # what would be probed, without privilege
 # OpenSSL and the Go programs already running are probed; name others with --binary
+lattice trace --jvm --duration 300 -o estate/billing/prod-1.lattice-trace.json   # Java, via JFR
 
 # serve the cockpit to named users with roles; every call lands in a hash-chained audit log
 lattice user add --name alice --role operator --users users.toml

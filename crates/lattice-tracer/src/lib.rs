@@ -29,6 +29,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub mod golang;
+#[cfg(target_os = "linux")]
+pub mod jvm;
 pub mod parse;
 #[cfg(target_os = "linux")]
 mod tracefs;

@@ -127,6 +127,19 @@ struct TraceArgs {
     /// Show which functions would be probed, and where, without recording (needs no privilege).
     #[arg(long)]
     dry_run: bool,
+
+    /// Record Java instead: what running JVMs ask the Java Cryptography Architecture for,
+    /// through their own Flight Recorder (no root needed for your own JVMs).
+    #[arg(long)]
+    jvm: bool,
+
+    /// With --jvm: only this JVM (repeatable). Defaults to every running JVM.
+    #[arg(long = "pid", requires = "jvm")]
+    pids: Vec<u32>,
+
+    /// With --jvm: the JDK whose jcmd and jfr to use, for JVMs that run on a JRE.
+    #[arg(long, requires = "jvm")]
+    jdk: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1131,6 +1144,9 @@ fn verify(args: VerifyArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
 }
 
 fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    if args.jvm {
+        return trace_jvm(args, sandbox);
+    }
     let options = lattice_tracer::Options {
         libraries: args.libraries.clone(),
         binaries: args.binaries.clone(),
@@ -1238,6 +1254,109 @@ fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
         args.output.display()
     );
     Ok(EXIT_OK)
+}
+
+#[cfg(target_os = "linux")]
+fn trace_jvm(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    use lattice_tracer::jvm;
+    let own = std::process::id();
+    let jvms: Vec<jvm::Jvm> = jvm::running()
+        .into_iter()
+        .filter(|j| j.pid != own && (args.pids.is_empty() || args.pids.contains(&j.pid)))
+        .collect();
+    if let Some(missing) = args
+        .pids
+        .iter()
+        .find(|pid| !jvms.iter().any(|j| j.pid == **pid))
+    {
+        anyhow::bail!("process {missing} is not a running JVM");
+    }
+    if args.dry_run {
+        for j in &jvms {
+            println!(
+                "{:>8}  uid {:<6} {}  {}",
+                j.pid,
+                j.uid,
+                j.java.display(),
+                j.application
+            );
+        }
+        println!("{} JVMs would be recorded", jvms.len());
+        return Ok(EXIT_OK);
+    }
+    if jvms.is_empty() {
+        anyhow::bail!("no JVM is running");
+    }
+    eprintln!(
+        "recording {} JVMs for {} s with their Flight Recorder",
+        jvms.len(),
+        args.duration
+    );
+    let started = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    // The JDK tools run first, unconfined but as each JVM's owner; what they export came from
+    // the JVMs, so it is parsed only after confinement.
+    let recordings = jvm::record(
+        &jvms,
+        args.jdk.as_deref(),
+        Duration::from_secs(args.duration),
+    );
+    let confinement = confine(sandbox, &[], &[&args.output])?;
+
+    let mut events = Vec::new();
+    let mut ignored = 0;
+    let mut failed = 0;
+    for recording in &recordings {
+        let parsed = recording
+            .json
+            .as_ref()
+            .map_err(String::clone)
+            .and_then(|json| jvm::events(&recording.jvm, json));
+        match parsed {
+            Ok((found, setup)) => {
+                events.extend(found);
+                ignored += setup;
+            }
+            Err(error) => {
+                failed += 1;
+                eprintln!(
+                    "lattice: JVM {} ({}): {error}",
+                    recording.jvm.pid, recording.jvm.application
+                );
+            }
+        }
+    }
+    events.sort();
+    let recorded = lattice_collectors::trace::Trace {
+        format: lattice_collectors::trace::FORMAT.into(),
+        started: lattice_core::rfc3339(started),
+        duration_seconds: args.duration,
+        libraries: vec!["JCA/JSSE (Java Flight Recorder)".into()],
+        events,
+        ignored_setup_calls: ignored,
+    };
+    write_atomic(&args.output, &pretty(&recorded)?)?;
+    println!(
+        "recorded {} distinct calls from {} of {} JVMs in {} s ({} setup lookups ignored; sandbox: {}) -> {}",
+        recorded.events.len(),
+        recordings.len() - failed,
+        recordings.len(),
+        args.duration,
+        ignored,
+        confinement.summary(),
+        args.output.display()
+    );
+    Ok(if failed == recordings.len() {
+        EXIT_ERROR
+    } else {
+        EXIT_OK
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn trace_jvm(_args: TraceArgs, _sandbox: lattice_sandbox::Mode) -> Result<u8> {
+    anyhow::bail!("Java tracing finds JVMs through /proc: it runs on Linux")
 }
 
 fn report(args: ReportArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {

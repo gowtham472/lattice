@@ -348,6 +348,18 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   recording starts are found through `/proc/*/exe`; only the links are read before confinement,
   and every ELF file (hostile ones included) is parsed inside the sandbox, by a parser that is
   fuzzed. A probe the kernel cannot arm is skipped, never allowed to stop the others.
+- **Java** (`lattice trace --jvm`) uses the JVM's own Flight Recorder instead of probes: the JDK's
+  `jcmd` starts a time-limited recording of `jdk.SecurityProviderService` (every JCA service
+  lookup, with its stack), `jdk.TLSHandshake` and `jdk.X509Certificate` in each running JVM, and
+  `jfr print --json` exports it. Both tools run as the JVM's owner (HotSpot accepts attach only
+  from its own user; as root, LATTICE drops to that user with `setpriv`), before confinement;
+  the exported JSON is parsed inside the sandbox. JSSE looks up every cipher and signature scheme
+  it might support while it initialises (RC4 and DSA included) and the JDK's random generator
+  mixes with SHA-1: a lookup whose stack passes through a static initialiser, an availability
+  check or the random generator is counted as ignored setup. The events name the provider
+  service that answered, not the caller's transformation (`Cipher.getInstance("AES/GCM/NoPadding")`
+  also looks up `AES`), so a bare cipher name is recorded as the generic algorithm, never
+  SunJCE's ECB default. Nothing is injected; a recording ends by itself.
 - **Progress.** A scan carries live counters (phase; files and archives done out of total;
   bytes), updated by the walker, the collectors and the engine from any thread. The CLI redraws
   one line on stderr when it is a terminal; the server streams them as server-sent events

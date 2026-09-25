@@ -85,6 +85,7 @@ flowchart TD
 | CI: tests, cockpit, fuzzing, OpenSSL 3.5.5 golden scan | Delivered |
 | Runtime tracing of OpenSSL calls on live hosts (`lattice trace`) | Delivered |
 | Runtime tracing of Go programs, stripped or not | Delivered |
+| Runtime tracing of Java through the JVM's Flight Recorder (`lattice trace --jvm`) | Delivered |
 | Live scan progress (server-sent events, terminal) | Delivered |
 | Windows build with process mitigations; output identical to Linux | Delivered (mitigations verified in CI) |
 

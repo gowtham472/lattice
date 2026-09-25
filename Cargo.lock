@@ -1207,6 +1207,8 @@ dependencies = [
  "lattice-core",
  "libc",
  "regex",
+ "serde",
+ "serde_json",
  "thiserror",
  "tracing",
 ]

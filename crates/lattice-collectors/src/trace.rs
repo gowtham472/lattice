@@ -39,6 +39,8 @@ pub enum CallKind {
     Groups,
     /// An OpenSSL cipher list (TLS 1.2 and below) or TLS 1.3 cipher suites.
     CipherList,
+    /// A negotiated protocol version (`TLSv1.3`).
+    Protocol,
 }
 
 /// One kind of call from one executable, and how often it happened.
@@ -144,14 +146,20 @@ impl Collector for TraceCollector {
             let value = event.value.as_deref().unwrap_or("");
             match event.kind {
                 CallKind::Algorithm => {
+                    // JCA events name the provider service that answered, not the caller's
+                    // transformation: `Cipher.getInstance("AES/GCM/NoPadding")` also looks up
+                    // `AES`, so a bare cipher name here is generic, never SunJCE's ECB default
                     if let Some(algorithm) = names::resolve(value) {
                         // the fetch says what the algorithm does: RSA fetched as a signature signs
                         let primitive = match event.function.as_str() {
                             "EVP_SIGNATURE_fetch"
+                            | "JCA Signature"
+                            | "X.509 certificate signature"
                             | "crypto/rsa.SignPKCS1v15"
                             | "crypto/rsa.SignPSS" => Some(Primitive::Signature),
-                            "EVP_KEM_fetch" => Some(Primitive::Kem),
-                            "EVP_KEYEXCH_fetch" => Some(Primitive::KeyAgree),
+                            "EVP_KEM_fetch" | "JCA KEM" => Some(Primitive::Kem),
+                            "EVP_KEYEXCH_fetch" | "JCA KeyAgreement" => Some(Primitive::KeyAgree),
+                            "JCA Cipher" if algorithm.id == "rsa" => Some(Primitive::Pke),
                             // RSA encryption, and TLS 1.2 RSA key transport
                             "EVP_ASYM_CIPHER_fetch"
                             | "crypto/rsa.EncryptPKCS1v15"
@@ -235,6 +243,16 @@ impl Collector for TraceCollector {
                     }
                     for algorithm in algorithms {
                         push(Finding::algorithm(algorithm));
+                    }
+                }
+                CallKind::Protocol => {
+                    if let Some((protocol, version)) = names::parse_protocol_version(value) {
+                        push(Finding::Protocol(ProtocolFinding {
+                            protocol,
+                            version: Some(version),
+                            cipher_suites: Vec::new(),
+                            groups: Vec::new(),
+                        }));
                     }
                 }
             }

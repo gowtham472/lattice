@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Records which cryptography running processes ask OpenSSL for, through kernel uprobes"
+description = "Records which cryptography running processes ask OpenSSL, Go and the JVM for"
 
 [dependencies]
 goblin.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 lattice-collectors = { path = "../lattice-collectors" }
 lattice-core = { path = "../lattice-core" }
 regex.workspace = true

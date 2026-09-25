@@ -87,6 +87,9 @@ analyses (see [decisions.md §9](decisions.md)).
   writable paths. Running executables are discovered as paths only; every ELF file is parsed
   after confinement, and the Go function-table parser is fuzzed (a crafted table that overflowed
   an address was found this way and fixed). *Enforced.*
+  Java tracing needs no uprobes: the JDK's `jcmd` and `jfr` run as each JVM's owner (never as
+  root when the JVM is not), into a directory LATTICE creates afresh rather than adopts, and the
+  recording they export is parsed only after confinement. *Enforced.*
 - **No secrets from key references.** When configuration names a key held in hardware, only the
   token, object label, engine or handle is recorded; the query part of a PKCS#11 URI (where
   `pin-value` lives) and Vault seal PINs are never read into a finding. *Enforced (tested).*
