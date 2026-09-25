@@ -1169,7 +1169,10 @@ fn trace(args: TraceArgs, sandbox: lattice_sandbox::Mode) -> Result<u8> {
         .map(PathBuf::as_path)
         .filter(|path| path.exists())
         .collect();
-    read.push(Path::new("/proc"));
+    // Linux only: macOS has no /proc, and nothing there to discover
+    if Path::new("/proc").exists() {
+        read.push(Path::new("/proc"));
+    }
     let mut write: Vec<&Path> = Vec::new();
     if !args.dry_run {
         write.push(&args.output);
