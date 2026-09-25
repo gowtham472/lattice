@@ -87,6 +87,18 @@ impl Default for TraceCollector {
     }
 }
 
+/// The algorithm a getter returns, by its name: OpenSSL's `EVP_des_ede3_cbc`, and BoringSSL's
+/// AEADs (`EVP_aead_aes_256_gcm_tls13`: AES-256-GCM, with TLS's nonce rules).
+pub fn getter_algorithm(function: &str) -> Option<AlgorithmRef> {
+    let name = function.strip_prefix("EVP_").unwrap_or(function);
+    let name = name.strip_prefix("aead_").unwrap_or(name);
+    let name = ["_tls12", "_tls13", "_randnonce"]
+        .into_iter()
+        .find_map(|suffix| name.strip_suffix(suffix))
+        .unwrap_or(name);
+    names::resolve(name)
+}
+
 fn clip(value: &str) -> String {
     value.chars().take(96).collect()
 }
@@ -155,6 +167,11 @@ impl Collector for TraceCollector {
                             "EVP_SIGNATURE_fetch"
                             | "JCA Signature"
                             | "X.509 certificate signature"
+                            | "ECDSA_sign"
+                            | "ECDSA_do_sign"
+                            | "RSA_sign"
+                            | "RSA_sign_pss_mgf1"
+                            | "EVP_PKEY_CTX_pqdsa_set_params"
                             | "crypto/rsa.SignPKCS1v15"
                             | "crypto/rsa.SignPSS" => Some(Primitive::Signature),
                             "EVP_KEM_fetch" | "JCA KEM" => Some(Primitive::Kem),
@@ -162,6 +179,8 @@ impl Collector for TraceCollector {
                             "JCA Cipher" if algorithm.id == "rsa" => Some(Primitive::Pke),
                             // RSA encryption, and TLS 1.2 RSA key transport
                             "EVP_ASYM_CIPHER_fetch"
+                            | "RSA_encrypt"
+                            | "RSA_public_encrypt"
                             | "crypto/rsa.EncryptPKCS1v15"
                             | "crypto/rsa.EncryptOAEP"
                             | "crypto/rsa.DecryptPKCS1v15"
@@ -180,11 +199,7 @@ impl Collector for TraceCollector {
                     }
                 }
                 CallKind::Getter => {
-                    let name = event
-                        .function
-                        .strip_prefix("EVP_")
-                        .unwrap_or(&event.function);
-                    if let Some(algorithm) = names::resolve(name) {
+                    if let Some(algorithm) = getter_algorithm(&event.function) {
                         push(Finding::algorithm(algorithm));
                     }
                 }

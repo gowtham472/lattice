@@ -73,6 +73,8 @@ Each phase is one commit in the history.
     as its sandbox.
 23. **Java tracing**: the JCA services, TLS handshakes and certificates of running JVMs, through
     their own Flight Recorder, with JSSE's setup lookups ignored.
+24. **BoringSSL, AWS-LC and rustls tracing**: their own entry points and NIDs, through the
+    versioned symbol prefixes Rust crates give them; programs found automatically.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).

@@ -380,3 +380,95 @@ fn a_hostile_function_table_cannot_overflow_addresses() {
     // never panics; whatever it returns stays in range
     let _ = golang::pclntab_functions(&table, 0x40_1000, |_| true);
 }
+
+#[test]
+fn bundled_libraries_are_recognised_through_their_prefixes() {
+    assert_eq!(canonical("aws_lc_0_45_0_X25519_keypair"), "X25519_keypair");
+    assert_eq!(canonical("aws_lc_fips_0_13_7_ECDSA_sign"), "ECDSA_sign");
+    assert_eq!(
+        canonical("ring_core_0_17_14__x25519_scalar_mult_adx"),
+        "x25519_scalar_mult_adx"
+    );
+    // not a versioned prefix: left alone
+    assert_eq!(canonical("aws_lc_rs_helper"), "aws_lc_rs_helper");
+    assert_eq!(canonical("aws_lc_0_45_0_"), "aws_lc_0_45_0_");
+    assert_eq!(canonical("EVP_CIPHER_fetch"), "EVP_CIPHER_fetch");
+
+    assert!(getter("EVP_aead_aes_256_gcm_tls13"));
+    assert!(getter("EVP_aead_chacha20_poly1305"));
+    assert!(!getter("EVP_aead_aes_128_gcm_init"));
+
+    assert_eq!(
+        interpret(Fetch::Nid(0), Some("989")).as_deref(),
+        Some("ML-KEM-768")
+    );
+    assert_eq!(
+        interpret(Fetch::Nid(0), Some("948")).as_deref(),
+        Some("X25519")
+    );
+    // NID_X9_62_id_ecPublicKey: ECDH or ECDSA, so nothing
+    assert_eq!(interpret(Fetch::Nid(0), Some("408")), None);
+    assert_eq!(
+        interpret(Fetch::Bits("AES", 1), Some("128")).as_deref(),
+        Some("AES-128")
+    );
+    assert_eq!(interpret(Fetch::Bits("AES", 1), Some("7")), None);
+
+    // uninterpretable values are not recorded
+    let nid = Probe {
+        library: PathBuf::from("/usr/bin/envoy"),
+        offset: 0x2000,
+        function: "EVP_PKEY_CTX_new_id".into(),
+        role: Role::Call(CallKind::Algorithm),
+        fetch: Fetch::Nid(0),
+        abi: Abi::C,
+        only_when: None,
+        executable: true,
+    };
+    assert!(
+        definition("g", "p0", &nid)
+            .unwrap()
+            .ends_with(" value=%di:s32")
+            || cfg!(not(target_arch = "x86_64"))
+    );
+    let mut aggregator = Aggregator::new(vec![nid], 10);
+    for value in ["408", "989"] {
+        aggregator.add(
+            &parse::parse(&format!("envoy-9 [000] ..... 1.0: p0: (0x1) value={value}")).unwrap(),
+            |_| None,
+        );
+    }
+    let trace = aggregator.finish("2026-09-25T00:00:00Z".into(), 1);
+    let values: Vec<Option<&str>> = trace.events.iter().map(|e| e.value.as_deref()).collect();
+    assert_eq!(values, [Some("ML-KEM-768")]);
+}
+
+/// `testdata/rustlsring` built unstripped, named by LATTICE_TEST_RING_BINARY; CI builds it,
+/// local runs skip without it.
+#[test]
+fn ring_is_found_in_a_rustls_program() {
+    let Ok(binary) = std::env::var("LATTICE_TEST_RING_BINARY") else {
+        eprintln!("LATTICE_TEST_RING_BINARY not set; skipping");
+        return;
+    };
+    let probes = plan(&[PathBuf::from(binary)]).unwrap();
+    let functions: Vec<&str> = probes.iter().map(|p| p.function.as_str()).collect();
+    assert!(probes.iter().all(|p| p.executable && p.abi == Abi::C));
+    assert!(
+        functions.contains(&"x25519_scalar_mult_generic_masked"),
+        "{functions:?}"
+    );
+    assert!(
+        functions.iter().any(
+            |f| f.starts_with("aes_") && f.ends_with("set_encrypt_key_base")
+                || *f == "vpaes_set_encrypt_key"
+        ),
+        "{functions:?}"
+    );
+    assert!(
+        functions
+            .iter()
+            .any(|f| f.starts_with("chacha20_poly1305_seal")),
+        "{functions:?}"
+    );
+}

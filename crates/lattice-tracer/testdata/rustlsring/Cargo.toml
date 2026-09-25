@@ -1,0 +1,16 @@
+# A rustls program on the ring provider, for testing LATTICE's tracing of ring. Not part of the
+# workspace; CI builds it.
+[package]
+name = "rustlsring"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+# release builds are stripped by default; the symbols are what the tracer finds ring by
+[profile.release]
+strip = "none"
+
+[workspace]

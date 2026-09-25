@@ -348,6 +348,22 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
   recording starts are found through `/proc/*/exe`; only the links are read before confinement,
   and every ELF file (hostile ones included) is parsed inside the sandbox, by a parser that is
   fuzzed. A probe the kernel cannot arm is skipped, never allowed to stop the others.
+- **BoringSSL, AWS-LC and rustls.** BoringSSL and its fork AWS-LC share OpenSSL's names where
+  they have them, and their own entry points are probed too: `X25519_keypair`, the ML-KEM and
+  Ed25519 functions, the NID a key context is created for (`EVP_PKEY_CTX_new_id`,
+  `EVP_PKEY_CTX_kem_set_params`, `EVP_PKEY_kem_new_raw_public_key`, which is how a TLS server
+  meets the client's ML-KEM share), `ECDSA_sign`, `ECDH_compute_key`, the AES key schedules (key
+  size) and the `EVP_aead_*` getters, which say which suite a connection's keys are for. NIDs
+  that do not name one algorithm (an EC key serves ECDH and ECDSA) are dropped. rustls has no
+  cryptography of its own: its providers are AWS-LC and ring, linked statically with versioned
+  symbol prefixes (`aws_lc_0_45_0_`, `ring_core_0_17_14__`), which are removed before matching.
+  ring exposes X25519, ChaCha20-Poly1305 and the AES key schedules as symbols; its P-256 and
+  P-384 routines serve ECDH and ECDSA verification alike and are not probed. Running programs
+  that carry such a library are discovered like Go programs. Symbols are required: Rust release
+  builds are stripped by default, so a stripped Rust program shows only what it asks a shared
+  libcrypto for. LATTICE's own server (rustls on AWS-LC) is the test case: traced while curl
+  connects, it shows X25519MLKEM768 as X25519 plus ML-KEM-768, the AES-256-GCM and
+  ChaCha20-Poly1305 suites and ECDSA signing with its certificate.
 - **Java** (`lattice trace --jvm`) uses the JVM's own Flight Recorder instead of probes: the JDK's
   `jcmd` starts a time-limited recording of `jdk.SecurityProviderService` (every JCA service
   lookup, with its stack), `jdk.TLSHandshake` and `jdk.X509Certificate` in each running JVM, and

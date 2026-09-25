@@ -6,6 +6,13 @@
 //! configures) through the kernel's uprobe tracer in tracefs, reads the calls for a bounded
 //! time, and writes an aggregated `lattice-trace/1` file for `lattice scan` to ingest.
 //!
+//! The same applies to BoringSSL and its fork AWS-LC, whose own entry points (`X25519_keypair`,
+//! `EVP_PKEY_CTX_kem_set_params`, the `EVP_aead_*` getters) are probed too, and to ring. Rust
+//! programs link AWS-LC or ring statically, with a versioned symbol prefix
+//! (`aws_lc_0_45_0_X25519`, `ring_core_0_17_14_aes_hw_set_encrypt_key`), and these are rustls's
+//! two providers: running programs that contain them, unstripped, are found and probed like Go
+//! programs ([`plan_discovered`]). Go programs have their own table ([`GO_SPECS`]).
+//!
 //! * **What is read:** the function called, the calling executable, and one argument: an
 //!   algorithm name, a key size or a list string, fetched by the kernel from the caller's memory.
 //!   Never data, keys or anything else.
@@ -58,6 +65,11 @@ pub enum Fetch {
     /// A TLS `CurveID` in the first 16 bits of the receiver (Go `crypto/tls` key exchanges),
     /// recorded as the group's name.
     CurveId,
+    /// A C `int` NID (`EVP_PKEY_CTX_new_id(NID_X25519, …)`), recorded as the algorithm's name;
+    /// NIDs that do not name one algorithm (`NID_kem`, EC keys for ECDH or ECDSA) are dropped.
+    Nid(usize),
+    /// A C `int` key size in bits, recorded as `<prefix>-<bits>` (`aes_hw_set_encrypt_key`).
+    Bits(&'static str, usize),
 }
 
 /// The calling convention of the probed code, which decides the argument registers.
@@ -191,7 +203,8 @@ pub const GO_SPECS: &[Spec] = &[
     ),
 ];
 
-/// The OpenSSL 3 calls that select cryptography by name or size.
+/// The C calls that select cryptography by name or size: OpenSSL 3's, then BoringSSL's and
+/// AWS-LC's own, then ring's.
 pub const SPECS: &[Spec] = &[
     spec("EVP_CIPHER_fetch", CallKind::Algorithm, 1),
     spec("EVP_MD_fetch", CallKind::Algorithm, 1),
@@ -223,7 +236,125 @@ pub const SPECS: &[Spec] = &[
         fetch: Fetch::String(3),
         only_when: Some((1, SSL_CTRL_SET_GROUPS_LIST)),
     },
+    // Key types by NID, in OpenSSL too; AWS-LC names ML-KEM and ML-DSA parameter sets this way
+    c_int("EVP_PKEY_CTX_new_id", Fetch::Nid(0)),
+    c_int("EVP_PKEY_CTX_kem_set_params", Fetch::Nid(1)),
+    c_int("EVP_PKEY_CTX_pqdsa_set_params", Fetch::Nid(1)),
+    // a TLS server encapsulates to the client's ML-KEM key, which arrives as raw bytes
+    c_int("EVP_PKEY_kem_new_raw_public_key", Fetch::Nid(0)),
+    c_int("EVP_PKEY_kem_new_raw_secret_key", Fetch::Nid(0)),
+    c_int("EVP_PKEY_kem_new_raw_key", Fetch::Nid(0)),
+    // ECDH itself: an EC key alone could be for ECDSA
+    named("ECDH_compute_key", "ECDH"),
+    named("ECDH_compute_key_fips", "ECDH"),
+    // AES key schedules, called once per key: OpenSSL's public one, and the hardware and
+    // constant-time ones of BoringSSL, AWS-LC and ring
+    c_int("AES_set_encrypt_key", Fetch::Bits("AES", 1)),
+    c_int("aes_hw_set_encrypt_key", Fetch::Bits("AES", 1)),
+    c_int("aes_hw_set_encrypt_key_alt", Fetch::Bits("AES", 1)),
+    c_int("aes_hw_set_encrypt_key_base", Fetch::Bits("AES", 1)),
+    c_int("aes_nohw_set_encrypt_key", Fetch::Bits("AES", 1)),
+    c_int("vpaes_set_encrypt_key", Fetch::Bits("AES", 1)),
+    spec("RSA_generate_key_fips", CallKind::RsaBits, 1),
+    // BoringSSL and AWS-LC entry points that are the algorithm
+    named("X25519", "X25519"),
+    named("X25519_keypair", "X25519"),
+    named("ED25519_keypair", "Ed25519"),
+    named("ED25519_sign", "Ed25519"),
+    named("MLKEM768_generate_key", "ML-KEM-768"),
+    named("MLKEM768_encap", "ML-KEM-768"),
+    named("MLKEM1024_generate_key", "ML-KEM-1024"),
+    named("MLKEM1024_encap", "ML-KEM-1024"),
+    named("KYBER_generate_key", "Kyber768"),
+    named("KYBER_encap", "Kyber768"),
+    named("ECDSA_sign", "ECDSA"),
+    named("ECDSA_do_sign", "ECDSA"),
+    named("RSA_sign", "RSA"),
+    named("RSA_sign_pss_mgf1", "RSA"),
+    named("RSA_encrypt", "RSA"),
+    named("RSA_public_encrypt", "RSA"),
+    named("MD5", "MD5"),
+    named("SHA1", "SHA-1"),
+    // BoringSSL's TLS configuration: real functions, where OpenSSL has macros over SSL_CTX_ctrl
+    spec("SSL_CTX_set1_curves_list", CallKind::Groups, 1),
+    spec("SSL_set1_curves_list", CallKind::Groups, 1),
+    spec("SSL_CTX_set1_groups_list", CallKind::Groups, 1),
+    spec("SSL_set1_groups_list", CallKind::Groups, 1),
+    spec("SSL_CTX_set_strict_cipher_list", CallKind::CipherList, 1),
+    spec("SSL_set_strict_cipher_list", CallKind::CipherList, 1),
+    // ring (and AWS-LC's assembly): ChaCha20-Poly1305 and X25519 have no other entry point.
+    // ring's P-256 and P-384 routines serve ECDH and ECDSA verification alike, so they are not
+    // probed: which one a call is cannot be told from the symbol.
+    named("chacha20_poly1305_seal", "ChaCha20-Poly1305"),
+    named("chacha20_poly1305_open", "ChaCha20-Poly1305"),
+    named("chacha20_poly1305_seal_avx2", "ChaCha20-Poly1305"),
+    named("chacha20_poly1305_open_avx2", "ChaCha20-Poly1305"),
+    named("chacha20_poly1305_seal_sse41", "ChaCha20-Poly1305"),
+    named("chacha20_poly1305_open_sse41", "ChaCha20-Poly1305"),
+    named("x25519_scalar_mult_generic_masked", "X25519"),
+    named("x25519_scalar_mult_adx", "X25519"),
+    named("x25519_public_from_private_generic_masked", "X25519"),
 ];
+
+const fn c_int(function: &'static str, fetch: Fetch) -> Spec {
+    Spec {
+        function,
+        kind: CallKind::Algorithm,
+        fetch,
+        only_when: None,
+    }
+}
+
+/// The algorithm a NID names, where it names exactly one (`openssl/nid.h`, shared by OpenSSL,
+/// BoringSSL and AWS-LC).
+fn nid_name(nid: i64) -> Option<&'static str> {
+    Some(match nid {
+        6 => "RSA",
+        28 => "DH",
+        116 => "DSA",
+        912 => "RSA-PSS",
+        948 => "X25519",
+        949 => "Ed25519",
+        960 => "Ed448",
+        961 => "X448",
+        969 => "HKDF",
+        988 => "ML-KEM-512",
+        989 => "ML-KEM-768",
+        990 => "ML-KEM-1024",
+        991 => "X25519MLKEM768",
+        992 => "SecP256r1MLKEM768",
+        994 => "ML-DSA-44",
+        995 => "ML-DSA-65",
+        996 => "ML-DSA-87",
+        _ => return None,
+    })
+}
+
+/// A symbol's name without the versioned prefix Rust crates give their bundled C library so two
+/// versions can link together: `aws_lc_0_45_0_X25519`, `ring_core_0_17_14__x25519_…` (ring's
+/// prefix ends in an underscore of its own).
+pub fn canonical(name: &str) -> &str {
+    let unversioned = |prefix: &str| {
+        let mut rest = name.strip_prefix(prefix)?;
+        for _ in 0..3 {
+            let digits = rest.find(|c: char| !c.is_ascii_digit())?;
+            if digits == 0 {
+                return None;
+            }
+            rest = rest[digits..].strip_prefix('_')?;
+        }
+        let rest = if prefix == "ring_core_" {
+            rest.strip_prefix('_').unwrap_or(rest)
+        } else {
+            rest
+        };
+        (!rest.is_empty()).then_some(rest)
+    };
+    ["aws_lc_fips_", "aws_lc_", "ring_core_"]
+        .into_iter()
+        .find_map(unversioned)
+        .unwrap_or(name)
+}
 
 /// What a probe is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,14 +445,17 @@ pub fn default_libraries() -> Vec<PathBuf> {
     found
 }
 
-/// Legacy getters: `EVP_aes_256_gcm`, `EVP_sha1`, … named after the algorithm they return.
+/// Legacy getters: `EVP_aes_256_gcm`, `EVP_sha1`, … named after the algorithm they return, and
+/// BoringSSL's AEAD getters (`EVP_aead_aes_256_gcm_tls13`), which rustls on AWS-LC calls for
+/// each connection's keys, so they say which suite was negotiated.
 fn getter(name: &str) -> bool {
     name.strip_prefix("EVP_").is_some_and(|rest| {
         !rest.is_empty()
+            && !rest.ends_with("_init")
             && rest
                 .bytes()
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-            && lattice_core::names::resolve(rest).is_some()
+            && lattice_collectors::trace::getter_algorithm(name).is_some()
     })
 }
 
@@ -353,7 +487,7 @@ pub fn plan(targets: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
             let Some(offset) = file_offset(address) else {
                 return;
             };
-            if !seen.insert((name.to_owned(), role == Role::SetupExit)) {
+            if !seen.insert((offset, role == Role::SetupExit)) {
                 return;
             }
             probes.push(Probe {
@@ -394,7 +528,7 @@ pub fn plan(targets: &[PathBuf]) -> Result<Vec<Probe>, TraceError> {
             if symbol.st_type() != goblin::elf::sym::STT_FUNC || symbol.st_value == 0 {
                 continue;
             }
-            let Some(name) = strings.get_at(symbol.st_name) else {
+            let Some(name) = strings.get_at(symbol.st_name).map(canonical) else {
                 continue;
             };
             if SETUP.contains(&name) {
@@ -459,28 +593,24 @@ pub fn running_executables() -> Vec<PathBuf> {
     executables.into_iter().collect()
 }
 
-/// Probes for discovered executables: the Go programs among them. Any file that cannot be read
-/// or parsed is skipped, since discovery is best effort; a malformed binary costs its own probes,
-/// never the recording.
+/// Probes for discovered executables: Go programs, and programs with their own copy of a
+/// cryptographic library (Rust programs on AWS-LC or ring, static OpenSSL or BoringSSL builds)
+/// whose symbols survive. A program that uses a shared libcrypto has nothing of its own to
+/// probe. Any file that cannot be read or parsed is skipped, since discovery is best effort; a
+/// malformed binary costs its own probes, never the recording.
 pub fn plan_discovered(candidates: &[PathBuf]) -> Vec<Probe> {
     let mut probes = Vec::new();
     for path in candidates {
-        let go = match std::fs::read(path) {
-            Ok(bytes) => goblin::elf::Elf::parse(&bytes).is_ok_and(|elf| golang::is_go(&elf)),
-            Err(error) => {
-                tracing::debug!(path = %path.display(), %error, "discovered executable unreadable");
-                continue;
-            }
-        };
-        if !go {
-            continue;
-        }
         match plan(std::slice::from_ref(path)) {
             Ok(found) => {
-                tracing::debug!(path = %path.display(), probes = found.len(), "Go program discovered");
+                if !found.is_empty() {
+                    tracing::debug!(path = %path.display(), probes = found.len(), "program with its own cryptography");
+                }
                 probes.extend(found);
             }
-            Err(error) => tracing::debug!(path = %path.display(), %error, "Go program not planned"),
+            Err(error) => {
+                tracing::debug!(path = %path.display(), %error, "discovered executable not planned")
+            }
         }
     }
     probes
@@ -533,6 +663,9 @@ pub fn definition(group: &str, event: &str, probe: &Probe) -> Result<String, Tra
             format!(" value={}:s64", register(probe.abi, index)?)
         }
         Fetch::CurveId => format!(" value=+0({}):u16", register(probe.abi, 0)?),
+        Fetch::Nid(index) | Fetch::Bits(_, index) => {
+            format!(" value={}:s32", register(probe.abi, index)?)
+        }
         Fetch::Nothing | Fetch::Fixed(_) => String::new(),
     };
     line.push_str(&fetch);
@@ -552,6 +685,13 @@ fn interpret(fetch: Fetch, raw: Option<&str>) -> Option<String> {
         Fetch::CurveId => {
             let id: u64 = raw?.parse().ok()?;
             Some(golang::curve_name(id).map_or_else(|| format!("0x{id:04x}"), str::to_owned))
+        }
+        Fetch::Nid(_) => nid_name(raw?.parse().ok()?).map(str::to_owned),
+        Fetch::Bits(prefix, _) => {
+            let bits: i64 = raw?.parse().ok()?;
+            [128, 192, 256]
+                .contains(&bits)
+                .then(|| format!("{prefix}-{bits}"))
         }
         Fetch::Nothing => None,
         Fetch::String(_) | Fetch::Int32(_) | Fetch::Int64(_) => {
@@ -618,6 +758,15 @@ impl Aggregator {
             line.fields.get("value").map(String::as_str),
         );
         let probe = &self.probes[index];
+        // a NID or size that names no single algorithm (an EC key, an odd length) says nothing
+        if value.is_none()
+            && matches!(
+                probe.fetch,
+                Fetch::Nid(_) | Fetch::Bits(..) | Fetch::KeyBits(..)
+            )
+        {
+            return;
+        }
         let executable = if probe.executable {
             probe.library.display().to_string()
         } else {

@@ -802,6 +802,38 @@ fn trace_plans_without_privilege() {
 }
 
 #[cfg(target_os = "linux")]
+/// LATTICE's own TLS is rustls on AWS-LC, linked in with a versioned symbol prefix: its test
+/// build is a Rust program whose cryptography the tracer finds.
+#[cfg(target_os = "linux")]
+#[test]
+fn trace_finds_aws_lc_inside_a_rust_program() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = lattice(
+        &[
+            "trace",
+            "--dry-run",
+            "--no-discover",
+            "--binary",
+            env!("CARGO_BIN_EXE_lattice"),
+        ],
+        dir.path(),
+    );
+    assert_eq!(code(&plan), 0, "{}", text(&plan.stderr));
+    let stdout = text(&plan.stdout);
+    for function in [
+        "X25519_keypair",
+        "EVP_PKEY_kem_new_raw_public_key",
+        "ECDSA_sign",
+    ] {
+        assert!(
+            stdout
+                .lines()
+                .any(|l| l.starts_with(function) && l.contains("lattice:0x")),
+            "{function} in {stdout}"
+        );
+    }
+}
+
 fn lattice_libraries_present() -> bool {
     [
         "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",

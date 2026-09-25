@@ -62,6 +62,10 @@ jobs:
           go build -o "$RUNNER_TEMP/gocrypto" .
           go build -ldflags="-s -w" -o "$RUNNER_TEMP/gocrypto-stripped" .
           echo "LATTICE_TEST_GO_BINARIES=$RUNNER_TEMP/gocrypto:$RUNNER_TEMP/gocrypto-stripped" >> "$GITHUB_ENV"
+      - name: A rustls program on ring, unstripped, for the tracer
+        run: |
+          cargo build --release --locked --manifest-path crates/lattice-tracer/testdata/rustlsring/Cargo.toml --target-dir "$RUNNER_TEMP/rustlsring"
+          echo "LATTICE_TEST_RING_BINARY=$RUNNER_TEMP/rustlsring/release/rustlsring" >> "$GITHUB_ENV"
       - name: JDK for the JVM tracer test (ML-KEM needs 24 or later)
         id: jdk
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1

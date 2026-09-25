@@ -86,6 +86,7 @@ flowchart TD
 | Runtime tracing of OpenSSL calls on live hosts (`lattice trace`) | Delivered |
 | Runtime tracing of Go programs, stripped or not | Delivered |
 | Runtime tracing of Java through the JVM's Flight Recorder (`lattice trace --jvm`) | Delivered |
+| Runtime tracing of BoringSSL, AWS-LC and rustls (AWS-LC and ring providers) | Delivered |
 | Live scan progress (server-sent events, terminal) | Delivered |
 | Windows build with process mitigations; output identical to Linux | Delivered (mitigations verified in CI) |
 
