@@ -1729,9 +1729,16 @@ fn run_probes(
         write: vec![writable.to_path_buf()],
     };
     let report = lattice_sandbox::apply(&plan, mode)?;
+    // ERROR_CHILD_PROCESS_BLOCKED: Windows's answer when the child-process mitigation refuses
+    const WINDOWS_CHILD_PROCESS_BLOCKED: i32 = 367;
     let observe = |result: std::io::Result<()>| match result {
         Ok(()) => "allowed".to_owned(),
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => "denied".to_owned(),
+        Err(error)
+            if cfg!(windows) && error.raw_os_error() == Some(WINDOWS_CHILD_PROCESS_BLOCKED) =>
+        {
+            "denied".to_owned()
+        }
         Err(error) => format!("error: {error}"),
     };
     let expect = |active: bool| if active { "denied" } else { "allowed" }.to_owned();

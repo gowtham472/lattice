@@ -1,7 +1,8 @@
 # LATTICE continuous integration.
 #
 #   every push and pull request: format, lint, test (Rust), typecheck and build (cockpit),
-#                                the OpenSSL golden scan, and a short fuzz of every parser
+#                                the OpenSSL golden scan, a short fuzz of every parser, and the
+#                                Windows and macOS builds run on their own systems
 #   nightly and on demand:       a long fuzz of every parser (corpora carried between runs)
 #
 # Third-party actions are pinned to commit SHAs (tags are movable); the Rust toolchain comes from
@@ -165,6 +166,35 @@ jobs:
           foreach ($pair in @(@("win.cbom.json", "dist/linux.cbom.json"), @("win.report.json", "dist/linux.report.json"))) {
             if ((Get-FileHash $pair[0]).Hash -ne (Get-FileHash $pair[1]).Hash) { throw "$($pair[0]) differs from $($pair[1])" }
           }
+
+  macos:
+    name: macOS (tests, binary)
+    if: github.event_name != 'schedule'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: macos-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: macos-
+      # includes the golden CBOM test: its file was written on Linux, so passing proves the
+      # macOS build produces byte-identical output
+      - run: cargo test --workspace --locked
+      - name: What the sandbox reports on macOS
+        run: cargo run --locked -q -p lattice-cli -- sandbox-check
+      - run: cargo build --release --locked -p lattice-cli
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lattice-macos-arm64
+          path: target/release/lattice
 
   fuzz:
     name: Fuzz every parser
