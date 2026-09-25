@@ -21,6 +21,8 @@ mkdir -p "$BIN" "$OPT"
 export PATH="$BIN:$HOME/.cargo/bin:$PATH"
 
 step() { printf '\n==> %s\n' "$*"; }
+# downloads retry: CI runners are sometimes refused or rate-limited for a moment
+fetch() { curl --proto "=https" --tlsv1.2 -sSfL --retry 6 --retry-all-errors --retry-delay 10 "$@"; }
 
 step "rustup"
 if ! command -v rustup >/dev/null 2>&1; then
@@ -34,14 +36,14 @@ rustc --version
 
 step "zig"
 if [ ! -x "$BIN/zig" ]; then
-  url=$(curl -sSf https://ziglang.org/download/index.json | python3 -c '
+  url=$(fetch https://ziglang.org/download/index.json | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 releases = sorted((k for k in d if k != "master"), key=lambda s: [int(x) for x in s.split(".")])
 print(d[releases[-1]]["x86_64-linux"]["tarball"])
 ')
   echo "fetching $url"
-  (cd "$OPT" && curl -sSfL "$url" -o zig.tar.xz && tar -xf zig.tar.xz && rm zig.tar.xz)
+  (cd "$OPT" && fetch "$url" -o zig.tar.xz && tar -xf zig.tar.xz && rm zig.tar.xz)
   zigdir=$(ls -d "$OPT"/zig-*/ | sort | tail -1)
   ln -sf "${zigdir}zig" "$BIN/zig"
 fi
@@ -49,13 +51,16 @@ zig version
 
 step "cargo-zigbuild"
 if [ ! -x "$BIN/cargo-zigbuild" ]; then
-  tag=$(curl -sSf https://api.github.com/repos/rust-cross/cargo-zigbuild/releases/latest \
+  # in CI the job's read-only token lifts the API's anonymous rate limit
+  auth=()
+  if [ -n "${GITHUB_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GITHUB_TOKEN"); fi
+  tag=$(fetch "${auth[@]}" https://api.github.com/repos/rust-cross/cargo-zigbuild/releases/latest \
         | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])')
   asset="cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz"
   base="https://github.com/rust-cross/cargo-zigbuild/releases/download/${tag}"
   tmp=$(mktemp -d)
-  curl -sSfL "$base/$asset" -o "$tmp/$asset"
-  curl -sSfL "$base/$asset.sha256" -o "$tmp/$asset.sha256"
+  fetch "$base/$asset" -o "$tmp/$asset"
+  fetch "$base/$asset.sha256" -o "$tmp/$asset.sha256"
   expected=$(awk '{print $1}' "$tmp/$asset.sha256")
   actual=$(sha256sum "$tmp/$asset" | awk '{print $1}')
   if [ "$expected" != "$actual" ]; then

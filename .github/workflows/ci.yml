@@ -134,6 +134,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain, zig and cargo-zigbuild
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           bash scripts/install-toolchain.sh
           rustup target add x86_64-pc-windows-gnu
