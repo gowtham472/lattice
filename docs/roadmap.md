@@ -81,6 +81,7 @@ Each phase is one commit in the history.
 25. **One binary**: the cockpit compiled in; a rehearsable demo script (`scripts/demo.sh`);
     performance measured on OpenSSL, the Go toolchain and a JDK; macOS in CI.
 26. **Release 1.0.0**: signed, reproducible packages for Linux and Windows, tagged `v1.0.0`.
+27. **Release 1.0.1**: the Apache-2.0 licence text in the repository and in every package.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).

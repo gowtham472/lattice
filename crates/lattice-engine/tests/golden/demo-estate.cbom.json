@@ -11,7 +11,7 @@
           "type": "application",
           "bom-ref": "tool/lattice",
           "name": "lattice",
-          "version": "1.0.0",
+          "version": "1.0.1",
           "description": "LATTICE cryptographic discovery and quantum-risk assessment"
         }
       ]

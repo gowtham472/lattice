@@ -57,4 +57,4 @@ These are argued in full in [decisions.md](decisions.md).
 
 ## Status
 
-Version 1.0.0. All three tiers, the CBOM, signing, the CI gate, the cockpit, container and capture collectors, runtime tracing, the signed PDF report, roles and audit, the sandbox and reproducible releases for Linux and Windows are built and tested; see [IMPLEMENTATION.md](IMPLEMENTATION.md). What is planned is listed in [roadmap.md](roadmap.md).
+Version 1.0.1. All three tiers, the CBOM, signing, the CI gate, the cockpit, container and capture collectors, runtime tracing, the signed PDF report, roles and audit, the sandbox and reproducible releases for Linux and Windows are built and tested; see [IMPLEMENTATION.md](IMPLEMENTATION.md). What is planned is listed in [roadmap.md](roadmap.md).
