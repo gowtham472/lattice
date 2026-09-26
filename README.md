@@ -163,3 +163,7 @@ rustls and Java programs (Java recorded live), and a fuzz of every parser (longe
 
 The demo estate's CBOM is a golden file: when a change to it is intended, regenerate it with
 `LATTICE_BLESS=1 cargo test -p lattice-engine --test golden` and review the diff.
+
+## Licence
+
+Apache License 2.0; see [`LICENSE`](LICENSE).
