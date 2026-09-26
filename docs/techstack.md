@@ -59,20 +59,30 @@ and deeper trade-offs are in [decisions.md](decisions.md).
 |-------|------|-----|
 | serde model | CycloneDX 1.6 | Full control of the CBOM fields |
 | `jsonschema` (no default features) | validation | Validates against the vendored official schema, never over the network |
-| `fips204` | ML-DSA-65 | Post-quantum signatures over CBOMs and release SBOMs |
+| `fips204` | ML-DSA-65 | Post-quantum signatures over CBOMs, PDF reports and release SBOMs, in pure Rust |
+| in-house | executive PDF | A deterministic writer (standard fonts, content-hash identity) so the report is byte-reproducible and signable |
 
 ### Server and cockpit
 | Crate / library | Role | Why |
 |-----------------|------|-----|
-| `axum`, `tokio`, `tower-http` | HTTP API | Async server; security headers; static files |
-| React 19 + TypeScript, Vite | cockpit | Strict typing; small bundle; no UI or chart framework (charts and the graph are SVG) |
+| `axum`, `tokio`, `tower-http` | HTTP API | Async server; security headers |
+| `rustls`, `tokio-rustls` on AWS-LC (`aws-lc-rs`) | TLS | TLS 1.3 only, hybrid X25519MLKEM768 offered first, mutual TLS; memory-safe |
+| React 19 + TypeScript, Vite | cockpit | Strict typing; small bundle; no UI or chart framework (charts and the graph are SVG); compiled into the binary by a build script |
+
+### Runtime tracing
+| Crate / mechanism | Role | Why |
+|-------------------|------|-----|
+| kernel uprobes through tracefs | OpenSSL, BoringSSL, AWS-LC, ring and Go calls | The same kernel hook as eBPF uprobes, without a BPF toolchain, verifier or kernel headers |
+| `goblin` + in-house `.gopclntab` reader | probe planning | Function offsets from ELF symbol tables, and from Go's own function table, which stripping keeps |
+| the JDK's `jcmd` and `jfr` | Java | The JVM's Flight Recorder records JCA and TLS events; nothing is injected into the application |
 
 ### Confinement
 | Crate | Role | Why |
 |-------|------|-----|
 | `landlock` | filesystem | Unprivileged, per-process filesystem rules |
 | `seccompiler` | system calls | BPF filter generation without writing BPF by hand |
-| `libc` | syscall numbers | Constants only; the workspace forbids `unsafe` code |
+| `libc` | syscall numbers | Constants only; `unsafe` is forbidden everywhere except the one Windows call that applies process mitigations |
+| `kernel32` (linked directly, no crate) | Windows | `SetProcessMitigationPolicy`: no child processes, no dynamic code, no remote images |
 
 ---
 

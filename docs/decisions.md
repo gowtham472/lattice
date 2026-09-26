@@ -207,6 +207,6 @@ every client that can use the cockpit supports 1.3, and 1.2 cannot negotiate the
 | Container images | **Exported archives** (`docker save`, OCI), streamed | Air-gapped: nothing is pulled; nothing is extracted to disk. |
 | Graph persistence | **Per scan, exported as JSON** | Enough for the cockpit and history; an embedded store is planned only if queries need it. |
 | Self-confinement | **Landlock + seccomp**, verified by `sandbox-check` | Unprivileged, per-process, and checkable on the operator's own kernel. |
-| Report engine | **Typst (embedded)**, planned | §10 above. |
+| Report engine | **A purpose-built, deterministic PDF writer**, ML-DSA signed | §10 above. |
 | At-rest encryption | **Planned** | See [security.md §4](security.md). |
 | Self-integrity | **Each release carries LATTICE's CBOM of its own binary and a signed SBOM** | Dogfooding is the strongest correctness and supply-chain signal; see [security.md §11](security.md). |

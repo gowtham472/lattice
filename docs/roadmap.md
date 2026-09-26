@@ -16,16 +16,19 @@ SIH26164/
 │   ├── lattice-graph/         # crypto graph, reachability, exposure
 │   ├── lattice-risk/          # assessor, advisor, roadmap
 │   ├── lattice-cbom/          # CycloneDX 1.6, schema validation, ML-DSA-65 signing
+│   ├── lattice-report/        # deterministic, signable executive PDF
 │   ├── lattice-engine/        # pipeline, traffic attribution, comparison
-│   ├── lattice-server/        # axum API and cockpit host
-│   ├── lattice-sandbox/       # Landlock + seccomp self-confinement
+│   ├── lattice-tracer/        # runtime tracing: uprobes (OpenSSL, BoringSSL, AWS-LC, ring, Go), JVM Flight Recorder
+│   ├── lattice-server/        # axum API, TLS and mTLS, roles, audit log, compiled-in cockpit
+│   ├── lattice-sandbox/       # Landlock + seccomp; process mitigations on Windows
 │   └── lattice-cli/           # the `lattice` binary
-├── cockpit/                   # React + TypeScript (Vite)
+├── cockpit/                   # React + TypeScript (Vite), compiled into the binary
 ├── knowledge/                 # algorithms, libraries, risk policy (TOML, versioned)
 ├── rules/                     # source detection rules (TOML, versioned)
 ├── examples/demo-estate/      # six services, an image archive, a packet capture
+├── fuzz/                      # a cargo-fuzz target for every parser
 ├── packaging/                 # systemd unit, Dockerfile
-└── scripts/                   # toolchain, demo artefacts, release, SBOM
+└── scripts/                   # demo, toolchain, demo artefacts, release, SBOM, fuzzing, golden scan
 ```
 
 ---
@@ -75,6 +78,9 @@ Each phase is one commit in the history.
     their own Flight Recorder, with JSSE's setup lookups ignored.
 24. **BoringSSL, AWS-LC and rustls tracing**: their own entry points and NIDs, through the
     versioned symbol prefixes Rust crates give them; programs found automatically.
+25. **One binary**: the cockpit compiled in; a rehearsable demo script (`scripts/demo.sh`);
+    performance measured on OpenSSL, the Go toolchain and a JDK; macOS in CI.
+26. **Release 1.0.0**: signed, reproducible packages for Linux and Windows, tagged `v1.0.0`.
 
 Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 [features.md](features.md).
@@ -85,13 +91,19 @@ Status by component: [IMPLEMENTATION.md](IMPLEMENTATION.md). Feature by feature:
 
 In order of value to an operator:
 
-1. **Tracing BoringSSL, rustls and the JVM**: statically linked TLS stacks without Go's
-   function table, and the JCA providers of a running JVM.
-2. **macOS builds**, and filesystem confinement on Windows (an AppContainer relaunch).
+1. **Measured accuracy**: precision and recall against labelled crypto-misuse benchmarks and
+   hand-labelled open-source projects, published with each release.
+2. **Deeper call resolution**, so reachability holds on large codebases where calls cross
+   modules, interfaces and frameworks.
+3. **Fleet mode**: many hosts scanned and traced centrally, with results merged per estate.
+4. **Filesystem confinement on Windows** (an AppContainer relaunch) and a sandbox on macOS.
 
 ---
 
 ## 4. The demo script (about four minutes)
+
+`scripts/demo.sh` runs these steps in order and checks every exit code; `--serve` ends in the
+cockpit.
 
 1. **The problem in one line**: "A quantum computer will break today's public-key
    cryptography, and adversaries are recording traffic now. First you must find all of it,

@@ -37,7 +37,8 @@ Read in this order.
 | 8 | [roadmap.md](roadmap.md) | What was built in which order, what comes next, the demo script |
 | 9 | [IMPLEMENTATION.md](IMPLEMENTATION.md) | Status per crate, guarantees enforced by tests, fixes found by running the demo |
 | 10 | [release.md](release.md) | Releases, verification, installation, the systemd unit, the container image, the sandbox |
-| - | [diagrams/eraser-architecture-prompt.md](diagrams/eraser-architecture-prompt.md) | Paste-ready prompt to generate the architecture diagram in Eraser |
+
+The architecture diagram and the one-command demo are in the [README](../README.md).
 
 ---
 
@@ -49,11 +50,11 @@ These are argued in full in [decisions.md](decisions.md).
 |----------|--------|-----------------|
 | Core language | **Rust** | Single static air-gapped binary; the best X.509/TLS/binary parsers are Rust-native; memory safety for a security tool |
 | Graph store | **In-process `petgraph`, exported per scan** | Keeps the few-artefacts, no-external-service, air-gapped promise; no Neo4j to deploy inside NTRO |
-| Runtime confirmation | **Optional, from packet captures and `lattice trace` (kernel uprobes on OpenSSL)** | Delivers the "Confirmed" liveness state without making the core depend on it |
+| Runtime confirmation | **Optional, from packet captures and `lattice trace` (kernel uprobes on OpenSSL, BoringSSL, AWS-LC, ring and Go; the JVM's Flight Recorder)** | Delivers the "Confirmed" liveness state without making the core depend on it |
 | Demo anchor | **Generic engine, banking/UPI flagship scenario** | Sharp story tied to the RBI quantum-safe push, without narrowing the tool |
 
 ---
 
 ## Status
 
-All three tiers, the CBOM, signing, the CI gate, the cockpit, container and capture collectors, the sandbox and reproducible releases are built and tested; see [IMPLEMENTATION.md](IMPLEMENTATION.md). What is planned is listed in [roadmap.md](roadmap.md).
+Version 1.0.0. All three tiers, the CBOM, signing, the CI gate, the cockpit, container and capture collectors, runtime tracing, the signed PDF report, roles and audit, the sandbox and reproducible releases for Linux and Windows are built and tested; see [IMPLEMENTATION.md](IMPLEMENTATION.md). What is planned is listed in [roadmap.md](roadmap.md).

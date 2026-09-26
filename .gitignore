@@ -7,3 +7,4 @@ node_modules
 cockpit/dist
 /dist
 !crates/*/tests/golden/*.json
+*.tsbuildinfo

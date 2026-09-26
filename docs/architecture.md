@@ -2,7 +2,7 @@
 
 LATTICE is a Rust analyser with a web cockpit that runs air-gapped. This document is the
 engineering specification of the system as built: the tiers, every component, the data model,
-the graph, the scoring and the deployment modes. What is designed but not yet built is listed
+the graph, the scoring and the deployment modes. What is designed but not yet built, and the known limits, are listed
 separately in §12, so nothing below is aspirational.
 
 ---
@@ -423,11 +423,12 @@ The reasoning behind these choices is in [techstack.md](techstack.md) and
 
 ---
 
-## 12. Designed but not yet built
+## 12. Designed but not yet built, and known limits
 
 | Item | Status |
 |------|--------|
-| Runtime tracing of BoringSSL, rustls and the JVM | Planned; OpenSSL and Go are traced today, captures cover the rest |
 | Pulling images from registries | Not planned for air-gapped use; images are scanned from `docker save`/OCI archives |
 | Persistent graph store (`redb`) and encryption at rest | Planned; the server keeps scan artefacts as JSON files |
-| macOS builds | Not built. Windows is built (x86_64-pc-windows-gnu) with process mitigations as its sandbox; filesystem and network confinement stay Linux-only |
+| Confinement beyond Linux | Windows uses process mitigations (no child processes, no dynamic code); filesystem and network confinement stay Linux-only. macOS is built and tested in CI without a sandbox |
+| Tracing stripped Rust binaries | Not possible by symbol: release builds strip the AWS-LC and ring symbols. Such programs are seen through what they ask a shared libcrypto for, through packet captures, and through scans |
+| Unpacking a JDK's `lib/modules` image | Not built; Java applications are covered by source scanning and `lattice trace --jvm` |

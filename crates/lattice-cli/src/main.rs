@@ -76,7 +76,8 @@ enum Command {
     Serve(ServeArgs),
     /// Show what the sandbox enforces on this machine, by attempting forbidden operations.
     SandboxCheck(SandboxCheckArgs),
-    /// Record which cryptography running processes ask OpenSSL for (Linux, root).
+    /// Record which cryptography running processes use: OpenSSL, BoringSSL, AWS-LC, ring and Go
+    /// through kernel uprobes (Linux, root), and Java through the JVM's Flight Recorder (--jvm).
     Trace(TraceArgs),
     /// Manage the users who may call the server.
     #[command(subcommand)]
@@ -111,12 +112,13 @@ struct TraceArgs {
     #[arg(long = "library")]
     libraries: Vec<PathBuf>,
 
-    /// An executable to probe directly (repeatable): a Go program, or a static OpenSSL build
-    /// with symbols. Go programs already running are found without it.
+    /// An executable to probe directly (repeatable): a Go program, a Rust program on AWS-LC or
+    /// ring, or a static OpenSSL or BoringSSL build with symbols. Running ones are found without it.
     #[arg(long = "binary")]
     binaries: Vec<PathBuf>,
 
-    /// Do not probe the Go programs that are running when recording starts.
+    /// Do not probe the programs with their own cryptography (Go, static builds, Rust on AWS-LC or
+    /// ring) that are running when recording starts.
     #[arg(long)]
     no_discover: bool,
 

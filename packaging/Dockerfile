@@ -1,10 +1,10 @@
 # LATTICE container image, built from source.
 #
-#   docker build -f packaging/Dockerfile -t lattice:0.1.0 .
-#   docker run --rm -v "$PWD/estate:/estate:ro" -v "$PWD/out:/out" lattice:0.1.0 \
+#   docker build -f packaging/Dockerfile -t lattice:1.0.0 .
+#   docker run --rm -v "$PWD/estate:/estate:ro" -v "$PWD/out:/out" lattice:1.0.0 \
 #       scan /estate -o /out/estate.cbom.json --report /out/estate.report.json
 #   docker run --rm -p 127.0.0.1:7443:7443 -v "$PWD/estate:/estate:ro" -v lattice-data:/data \
-#       -e LATTICE_TOKEN=... lattice:0.1.0 serve --bind 0.0.0.0:7443 --root estate=/estate --data-dir /data
+#       -e LATTICE_TOKEN=... lattice:1.0.0 serve --bind 0.0.0.0:7443 --root estate=/estate --data-dir /data
 #
 # The final image is `scratch`: one static binary, the cockpit and the knowledge files, no shell,
 # no package manager, a non-root user. LATTICE's own sandbox needs the landlock_* system calls,
