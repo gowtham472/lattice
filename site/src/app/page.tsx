@@ -90,7 +90,6 @@ export default function Home() {
                 <CipherTicker />
               </div>
               <div className="mark-card">
-                <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
                 <HalftoneMark />
                 <div className="mark-status">
                   <span className="live"><i /><span><b>Sandbox on</b>, offline</span></span>

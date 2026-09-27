@@ -15,7 +15,8 @@ export const viewport: Viewport = { themeColor: "#F2F2EF" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${jakarta.variable} ${mono.variable}`}>
+    // browser extensions add attributes to <html> before React loads; they are not ours to match
+    <html lang="en" className={`${jakarta.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         {/* Satoshi, the primary face, from Fontshare (Indian Type Foundry) */}
         <link rel="preconnect" href="https://api.fontshare.com" />
