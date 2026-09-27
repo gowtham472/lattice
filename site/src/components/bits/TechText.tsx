@@ -2,6 +2,7 @@
 
 // TechText from React Bits (https://reactbits.dev), by David Haz. MIT + Commons Clause License
 // Condition v1.0: used as part of this website; not redistributed on its own. Styles live in globals.css.
+// Changed: an `align` prop sets the word to the left or right of its box as well as the centre.
 
 import { useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
@@ -41,6 +42,7 @@ export interface TechTextProps {
   draggable?: boolean;
   sweep?: boolean;
   speed?: number;
+  align?: 'center' | 'left' | 'right';
   className?: string;
   style?: CSSProperties;
 }
@@ -100,6 +102,7 @@ const TechText = ({
   labels = true,
   draggable = true,
   sweep = true,
+  align = 'center',
   speed = 1,
   className = '',
   style
@@ -130,6 +133,7 @@ const TechText = ({
       labels,
       draggable,
       sweep,
+      align,
       speed
     };
     wakeRef.current();
@@ -224,6 +228,7 @@ const TechText = ({
         s.dashGap,
         s.strokeWidth,
         s.lineStyle,
+        s.align,
         width,
         height,
         dpr
@@ -249,7 +254,9 @@ const TechText = ({
       m = probe.measureText(s.text);
       const inkWidth = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
       const inkHeight = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
-      const x = (width - inkWidth) / 2 + m.actualBoundingBoxLeft;
+      const inset = 10;
+      const x =
+        (s.align === 'left' ? inset : s.align === 'right' ? width - inset - inkWidth : (width - inkWidth) / 2) + m.actualBoundingBoxLeft;
       const baseline = (height - inkHeight) / 2 + m.actualBoundingBoxAscent;
       const next = {
         size,

@@ -190,9 +190,8 @@ export default function Home() {
           <div className="proof-inner">
             <div className="proof-head">
               <h2 id="proof-title">Watch cryptography <span className="accent">happen.</span></h2>
-              <p className="lead"><code>lattice trace</code> listens inside running programs, from the kernel. No source, no restart, no agent. What it sees is marked Confirmed.</p>
             </div>
-            <Listeners />
+            <Listeners aside={<p className="lead"><code>lattice trace</code> listens inside running programs, from the kernel. No source, no restart, no agent. What it sees is marked Confirmed.</p>} />
           </div>
         </section>
 

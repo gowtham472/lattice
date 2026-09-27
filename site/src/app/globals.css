@@ -363,14 +363,18 @@ input[type="range"] { width: 100%; accent-color: var(--accent); height: 28px; cu
 .laser { position: absolute; inset: 0; z-index: 0; }
 .laser canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; mix-blend-mode: screen; pointer-events: none; }
 .proof-inner { position: relative; z-index: 1; width: 100%; padding-inline: clamp(16px, 4.4vw, 72px); display: grid; gap: clamp(20px, 3vw, 36px); }
-.proof-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: 24px 48px; align-items: end; }
-.proof-head h2 { font-size: clamp(38px, 4.6vw, 68px); letter-spacing: -0.045em; line-height: 1; }
+.proof-head { width: 46%; }
+.proof-head h2 { font-size: clamp(38px, 4.2vw, 64px); letter-spacing: -0.045em; line-height: 1; }
 .proof .lead { color: var(--night-ink-2); }
 .proof .lead code { color: #FFD2BD; }
-@media (max-width: 900px) { .proof-head { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) { .proof-head { width: auto; } }
 
 /* the runtime's name, as a wordmark whose letters turn to dashed paths under the cursor */
 .listen { display: grid; gap: 0; }
+/* the name on the left and the words on the right, with the beam falling clear between them */
+.listen-top { display: grid; grid-template-columns: 46% minmax(0, 1fr); align-items: end; gap: 24px; }
+.listen-aside { justify-self: end; max-width: 36ch; padding-bottom: clamp(16px, 2vw, 28px); }
+@media (max-width: 900px) { .listen-top { grid-template-columns: minmax(0, 1fr); } .listen-aside { justify-self: start; order: -1; padding-bottom: 0; } }
 .listen-word { height: clamp(120px, 19vh, 240px); }
 .tech-text { position: relative; width: 100%; height: 100%; touch-action: pan-y; user-select: none; }
 .tech-text-canvas { display: block; width: 100%; height: 100%; }

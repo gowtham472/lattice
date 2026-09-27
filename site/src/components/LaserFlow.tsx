@@ -91,8 +91,10 @@ export default function LaserFlow({ targetId, color = "#FF5B1A" }: { targetId: s
       gl.uniform1f(U("uBeamXFrac"), ix / W - 0.5);
       gl.uniform1f(U("uBeamYFrac"), 0.5 - iy / H);
       gl.uniform1f(U("uHLenFactor"), Math.min(0.9, Math.max(0.22, (t.width / 2) * upp * 1.08 / R)));
-      gl.uniform1f(U("uVLenFactor"), Math.max(1.0, above * 1.05));
-      gl.uniform1f(U("uReach"), Math.max(0.6, above * 1.15));
+      // the beam is drawn well past the top edge, so it is still bright where the section begins
+      gl.uniform1f(U("uVLenFactor"), Math.max(1.0, above * 2.6));
+      gl.uniform1f(U("uReach"), Math.max(0.6, above * 3.2));
+      gl.uniform1f(U("uTop"), Math.max(80, iy) * upp);
     };
     const draw = () => {
       gl.uniform1f(U("iTime"), flow);

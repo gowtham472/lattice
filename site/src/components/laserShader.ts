@@ -2,7 +2,7 @@
 // - one scale for both axes, so the beam keeps its thickness on wide screens;
 // - uDrop and uHead: the beam falls from the top as a bright streak with a hot head, then settles;
 // - uImpact: the horizontal flare flashes when the beam lands, then settles;
-// - uReach: the beam fades out at the top of the section, not at a fixed height;
+// - uReach, uTop: the beam reaches the top of the section, and falls from there;
 // - uCore: a white-hot core inside the coloured halo, a soft glow at the impact, and a slight flicker.
 // Copyright (c) 2026 David Haz. MIT + Commons Clause License Condition v1.0: used here as part
 // of this website, as the licence allows; the components are not redistributed on their own.
@@ -45,6 +45,7 @@ uniform float uImpact;
 uniform float uHead;
 uniform float uReach;
 uniform float uCore;
+uniform float uTop;
 #define PI 3.14159265359
 #define TWO_PI 6.28318530718
 #define EPS 1e-6
@@ -162,7 +163,7 @@ void mainImage(out vec4 fc,in vec2 frag){
     b+=wt*bsa(uvc,p,mask*env,sig);
   }
   float sPix=clamp(yPix/(R_V*uReach),0.0,1.0),topA=pow(1.0-smoothstep(TOP_FADE_START,1.0,sPix),TOP_FADE_EXP);
-  float front=(R_V*uVLenFactor+20.0)*(1.0-uDrop)-20.0;
+  float front=(uTop+20.0)*(1.0-uDrop)-20.0;
   float vis=smoothstep(front-3.0,front+14.0,yPix);
   float head=exp(-uvc.x*uvc.x/2.2)*exp(-(yPix-front)*(yPix-front)/30.0)*uHead;
   float flick=1.0+0.03*sin(iTime*29.0)*sin(iTime*17.0);

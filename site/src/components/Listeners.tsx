@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import DecryptedText from "@/components/bits/DecryptedText";
 import TechText from "@/components/bits/TechText";
 import { runtimes, trace } from "@/data/site";
@@ -11,7 +11,7 @@ const DWELL = 7;   // seconds each runtime holds the stage before the next, unti
  * The runtimes `lattice trace` listens inside: a wordmark of the one in focus, and a full-width
  * tab bar over what LATTICE listens to there and what it reads. The laser lands on this panel.
  */
-export default function Listeners() {
+export default function Listeners({ aside }: { aside?: ReactNode }) {
   const [i, setI] = useState(runtimes.findIndex((r) => r.id === "rustls"));
   const [auto, setAuto] = useState(true);
   const [inView, setInView] = useState(false);
@@ -45,11 +45,14 @@ export default function Listeners() {
 
   return (
     <div className="listen">
+      <div className="listen-top">
       <div className="listen-word fade-in" key={r.id}>
-        <TechText
+        <TechText align="left"
           text={r.name} fontFamily="Satoshi, sans-serif" fontWeight={700} fontSize={300} letterSpacing={-0.045}
           color="#EDEDEA" accentColor="#FF5B1A" reach={180} dashLength={5} dashGap={3} strokeWidth={1.4} specks={14}
         />
+      </div>
+      {aside && <div className="listen-aside">{aside}</div>}
       </div>
 
       <div className="runtime-panel" id="runtime-panel" ref={panel} onMouseMove={onMove}>
