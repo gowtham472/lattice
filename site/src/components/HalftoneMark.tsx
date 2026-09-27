@@ -4,22 +4,26 @@ import { useEffect, useRef } from "react";
 
 type Dot = { x: number; y: number; shape: boolean; core: boolean; line: boolean };
 
-const ACCENT = "#FF5B1A";
+const TONES = { risk: "#FF5B1A", safe: "#2E6BFF" };
 const INK = "#121212";
 const PAPER = "#D9D7D0";
 
 /**
  * The lattice mark drawn in dots. A lens follows the cursor and magnifies the dots under it;
  * without a cursor (touch, or at rest) the lens drifts on its own. Draws only while visible.
+ * `tone` colours it: orange for cryptography at risk, blue once it is post-quantum.
  */
-export default function HalftoneMark() {
+export default function HalftoneMark({ tone = "risk" }: { tone?: keyof typeof TONES }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const readout = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const ACCENT = TONES[tone];
+    let tick = 0;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     let W = 0, H = 0, spacing = 9;
@@ -116,6 +120,9 @@ export default function HalftoneMark() {
       c.fillStyle = PAPER; c.fill(batches[PAPER]);
       c.fillStyle = ACCENT; c.fill(batches[ACCENT]);
       c.fillStyle = INK; c.fill(batches[INK]);
+      if (readout.current && (tick++ % 4 === 0) && W && H) {
+        readout.current.textContent = `x ${(lens.x / W).toFixed(2)}  y ${(lens.y / H).toFixed(2)}`;
+      }
     }
 
     let raf = 0;
@@ -151,7 +158,12 @@ export default function HalftoneMark() {
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerleave", onLeave);
     };
-  }, []);
+  }, [tone]);
 
-  return <canvas ref={ref} aria-label="The LATTICE mark in dots. Move the cursor over it to look closer." role="img" />;
+  return (
+    <>
+      <canvas ref={ref} aria-label="The LATTICE mark in dots. Move the cursor over it to look closer." role="img" />
+      <span className="lens-readout" ref={readout} aria-hidden="true" />
+    </>
+  );
 }

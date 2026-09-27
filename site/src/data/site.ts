@@ -5,10 +5,10 @@
 export const REPO = "https://github.com/gowtham472/lattice";
 
 export const stats = [
-  { value: "0.18 s", label: "to scan the demo estate: 19 files, 49 assets" },
-  { value: "1,033", label: "assets found in OpenSSL 3.5.5 source in 2.9 s" },
-  { value: "9", label: "source languages and nine kinds of evidence" },
-  { value: "234", label: "tests, run on Linux, Windows and macOS" },
+  { to: 0.18, suffix: " s", label: "to scan the demo estate: 19 files, 49 assets" },
+  { to: 1033, label: "assets found in OpenSSL 3.5.5 source in 2.9 s" },
+  { to: 9, label: "kinds of evidence, from source to live processes" },
+  { to: 234, label: "tests, run on Linux, Windows and macOS" },
 ];
 
 // Mosca's inputs, as the engine uses them (knowledge/policy.toml)

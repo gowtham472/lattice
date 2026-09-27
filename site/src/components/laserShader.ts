@@ -1,4 +1,9 @@
-// Fragment shader of LaserFlow from React Bits (https://reactbits.dev), unchanged.
+// Fragment shader of LaserFlow from React Bits (https://reactbits.dev), modified for this site:
+// - one scale for both axes, so the beam keeps its thickness on wide screens;
+// - uDrop and uHead: the beam falls from the top as a bright streak with a hot head, then settles;
+// - uImpact: the horizontal flare flashes when the beam lands, then settles;
+// - uReach: the beam fades out at the top of the section, not at a fixed height;
+// - uCore: a white-hot core inside the coloured halo, a soft glow at the impact, and a slight flicker.
 // Copyright (c) 2026 David Haz. MIT + Commons Clause License Condition v1.0: used here as part
 // of this website, as the licence allows; the components are not redistributed on their own.
 
@@ -35,6 +40,11 @@ uniform float uFalloffStart;
 uniform float uFogFallSpeed;
 uniform vec3 uColor;
 uniform float uFade;
+uniform float uDrop;
+uniform float uImpact;
+uniform float uHead;
+uniform float uReach;
+uniform float uCore;
 #define PI 3.14159265359
 #define TWO_PI 6.28318530718
 #define EPS 1e-6
@@ -125,7 +135,7 @@ float vWisps(vec2 uv,float topF){
 }
 void mainImage(out vec4 fc,in vec2 frag){
   vec2 C=iResolution.xy*.5; float invW=1.0/max(C.x,1.0);
-  vec2 sc=(512.0/iResolution.xy)*.4;
+  vec2 sc=vec2(512.0/iResolution.y)*.4;
   vec2 uv=(frag-C)*sc,off=vec2(uBeamXFrac*iResolution.x*sc.x,uBeamYFrac*iResolution.y*sc.y);
   vec2 uvc = uv - off;
   float a=0.0,b=0.0;
@@ -151,9 +161,14 @@ void mainImage(out vec4 fc,in vec2 frag){
     float mask=step(0.0,yp);
     b+=wt*bsa(uvc,p,mask*env,sig);
   }
-  float sPix=clamp(yPix/R_V,0.0,1.0),topA=pow(1.0-smoothstep(TOP_FADE_START,1.0,sPix),TOP_FADE_EXP);
-  float L=a+b*topA;
-  float w=vWisps(vec2(uvc.x,yPix),topA);
+  float sPix=clamp(yPix/(R_V*uReach),0.0,1.0),topA=pow(1.0-smoothstep(TOP_FADE_START,1.0,sPix),TOP_FADE_EXP);
+  float front=(R_V*uVLenFactor+20.0)*(1.0-uDrop)-20.0;
+  float vis=smoothstep(front-3.0,front+14.0,yPix);
+  float head=exp(-uvc.x*uvc.x/2.2)*exp(-(yPix-front)*(yPix-front)/30.0)*uHead;
+  float flick=1.0+0.03*sin(iTime*29.0)*sin(iTime*17.0);
+  float streak=exp(-uvc.x*uvc.x/1.2)*vis*step(0.0,yPix)*(0.35+0.65*(1.0-sPix))*uHead;
+  float L=(a*uImpact+b*topA*vis)*flick+head*2.2+streak*1.1;
+  float w=vWisps(vec2(uvc.x,yPix),topA)*vis;
   float fog=0.0;
 #if FOG_ON
   vec2 fuv=uvc*uFogScale;
@@ -184,10 +199,13 @@ void mainImage(out vec4 fc,in vec2 frag){
   float radialFade = 1.0 - smoothstep(0.0, 0.7, length(uvc) / 120.0);
   fog = n * browserFogIntensity * bBias * bm * hW * radialFade;
 #endif
-  float LF=L+fog;
+  float glow=exp(-dot(uvc,uvc)/900.0)*0.3*min(uImpact,1.4);
+  float LF=L+fog+glow;
   float dith=(h21(frag)-0.5)*(DITHER_STRENGTH/255.0);
   float tone=g(LF+w);
   vec3 col=tone*uColor+dith;
+  float hot=smoothstep(0.9,2.6,L+w*0.25);
+  col=mix(col,vec3(1.0,0.96,0.92)*tone,hot*uCore);
   float alpha=clamp(g(L+w*0.6)+dith*0.6,0.0,1.0);
   float nxE=abs((frag.x-C.x)*invW),xF=pow(clamp(1.0-smoothstep(EDGE_X0,EDGE_X1,nxE),0.0,1.0),EDGE_X_GAMMA);
   float scene=LF+max(0.0,w)*0.5,hi=smoothstep(EDGE_LUMA_T0,EDGE_LUMA_T1,scene);

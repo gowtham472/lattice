@@ -19,10 +19,7 @@ export default function SandboxProbe() {
   return (
     <div className="card probe-panel">
       <h3>Try to make it phone home</h3>
-      <p className="muted" style={{ fontSize: 15, color: "var(--ink-2)" }}>
-        These are the probes <code>lattice sandbox-check</code> runs on the machine it is about to scan. Each button replays the
-        result it recorded.
-      </p>
+      <p>Each button replays what <code>lattice sandbox-check</code> recorded on a real machine.</p>
       <div className="probe-buttons">
         {probes.map((p) => {
           const Icon = ICONS[p.id];
@@ -38,7 +35,7 @@ export default function SandboxProbe() {
         <div className="cmd">$ lattice sandbox-check</div>
         {lines.length === 0 && <div># press a probe above</div>}
         {lines.map((l, i) => (
-          <div key={i}>
+          <div key={i} className="fresh">
             <span className="ok">ok</span>{"   "}{l.label.padEnd(32, " ")} {l.layer.padEnd(12, " ")} observed{" "}
             <span className={l.result === "denied" ? "denied" : "allowed"}>{l.result}</span>
           </div>

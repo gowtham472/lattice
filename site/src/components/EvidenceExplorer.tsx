@@ -40,7 +40,7 @@ export default function EvidenceExplorer() {
         })}
       </div>
       <div className="card evidence" role="tabpanel" id="evidence-panel" aria-labelledby={`tab-${s.id}`}>
-        <h3>{s.name}</h3>
+        <h3 key={`h${s.id}`} className="fade-in">{s.name}</h3>
         <p className="evidence-what">{s.what}</p>
         <div className="file" key={s.id}>
           <span className="k">read</span> <span className="v">{s.path}</span>
@@ -49,14 +49,14 @@ export default function EvidenceExplorer() {
           <br />
           <span className="k">matched</span> {s.token}
         </div>
-        <div className={`result tone-${s.tone}`}>
+        <div className={`result tone-${s.tone} fade-in`} key={`r${s.id}`}>
           <span className="glyph"><ToneIcon size={22} weight="duotone" /></span>
           <div>
             <h3>{s.finding}</h3>
             <p>{s.verdict}</p>
           </div>
         </div>
-        <dl className="proven">
+        <dl className="proven fade-in" key={`p${s.id}`}>
           <div>
             <dt>Liveness</dt>
             <dd><b className={`live-${s.liveness.toLowerCase()}`}>{s.liveness}</b>{s.reason}</dd>

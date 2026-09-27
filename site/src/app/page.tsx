@@ -1,7 +1,19 @@
 import {
-  ArrowUpRight, CheckCircle, Detective, FileCode, Fingerprint, GithubLogo, HardDrives, Lightning, MagnifyingGlass, Play,
-  SealCheck, ShareNetwork, Signature, Cpu, ChartBar,
+  ArrowUpRight, ChartBar, Fingerprint, GithubLogo, HardDrives, MagnifyingGlass, Play, SealCheck, ShareNetwork, Signature,
 } from "@phosphor-icons/react/dist/ssr";
+import AnimatedContent from "@/components/bits/AnimatedContent";
+import BlurText from "@/components/bits/BlurText";
+import ClickSpark from "@/components/bits/ClickSpark";
+import CountUp from "@/components/bits/CountUp";
+import DecryptedText from "@/components/bits/DecryptedText";
+import Magnet from "@/components/bits/Magnet";
+import RotatingText from "@/components/bits/RotatingText";
+import ScrollVelocity from "@/components/bits/ScrollVelocity";
+import ShinyText from "@/components/bits/ShinyText";
+import SpotlightCard from "@/components/bits/SpotlightCard";
+import TextType from "@/components/bits/TextType";
+import Chapter from "@/components/Chapter";
+import CipherTicker from "@/components/CipherTicker";
 import EvidenceExplorer from "@/components/EvidenceExplorer";
 import HalftoneMark from "@/components/HalftoneMark";
 import Harvest from "@/components/Harvest";
@@ -10,264 +22,280 @@ import LatticeLogo from "@/components/LatticeLogo";
 import MoscaLab from "@/components/MoscaLab";
 import RoadmapExplorer from "@/components/RoadmapExplorer";
 import SandboxProbe from "@/components/SandboxProbe";
+import ScrollRail from "@/components/ScrollRail";
 import Storyboard from "@/components/Storyboard";
 import TraceCard from "@/components/TraceCard";
 import { REPO, stats } from "@/data/site";
 
 const NAV = [
-  ["#why", "Why now"], ["#how", "How it works"], ["#proof", "Proof"], ["#mosca", "Deadlines"], ["#trust", "Trust"], ["#demo", "Demo"],
+  ["#why", "Why now"], ["#find", "How it works"], ["#proof", "Proof"], ["#deadline", "Deadlines"], ["#trust", "Trust"], ["#demo", "Demo"],
 ] as const;
+
+const CHAPTERS = [
+  { id: "why", label: "The letter" }, { id: "find", label: "Find" }, { id: "proof", label: "Proof" }, { id: "deadline", label: "Deadline" },
+  { id: "plan", label: "Plan" }, { id: "trust", label: "Trust" }, { id: "demo", label: "Demo" },
+];
+
+const loop = { type: "spring", damping: 30, stiffness: 380 } as const;
 
 export default function Home() {
   return (
     <div className="page">
       <div className="rails" aria-hidden="true" />
+      <ClickSpark />
+      <ScrollRail items={CHAPTERS} />
 
       <div className="nav-shell">
         <header className="nav">
           <a className="brand" href="#top" aria-label="LATTICE home"><LatticeLogo size={22} />LATTICE</a>
           <nav className="nav-links" aria-label="Sections">
-            {NAV.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
+            {NAV.map(([href, label]) => (
+              <a key={href} href={href}><DecryptedText text={label} animateOn="hover" speed={30} maxIterations={8} characters="ABCDEF0123456789#/" encryptedClassName="enc" /></a>
+            ))}
           </nav>
           <a className="btn btn-dark" href={REPO} style={{ paddingRight: 16 }}><GithubLogo size={17} weight="fill" />GitHub</a>
+          <span className="nav-progress" aria-hidden="true"><i /></span>
         </header>
       </div>
 
       <main id="top">
+        {/* ---------- hero ---------- */}
         <section className="hero" aria-labelledby="hero-title">
           <div className="wrap">
             <div className="hero-grid">
               <div className="hero-copy">
-                <h1 id="hero-title"><span>See every cipher.</span><span className="accent">Fix what breaks first.</span></h1>
+                <h1 id="hero-title">
+                  <span className="h1-row">
+                    See every{" "}
+                    <RotatingText
+                      texts={["cipher.", "key.", "certificate.", "handshake.", "protocol."]}
+                      mainClassName="rot" splitLevelClassName="rot-split"
+                      staggerFrom="last" staggerDuration={0.025} rotationInterval={2600}
+                      initial={{ y: "100%", opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: "-115%", opacity: 0 }}
+                      transition={loop}
+                    />
+                  </span>
+                  <span className="accent">Fix what breaks first.</span>
+                </h1>
                 <p className="lead">
-                  LATTICE finds the cryptography across your code, binaries, certificates, configuration, containers, traffic and
-                  running processes. Then it shows which secrets a quantum computer will read, when, and the cheapest safe fix,
-                  dated against India&apos;s 2027 to 2029 deadline.
+                  One offline scan finds the cryptography across an estate. Then LATTICE shows what a quantum computer breaks first, and when.
                 </p>
                 <div className="cta">
-                  <a className="btn btn-dark" href={REPO}>
-                    <GithubLogo size={18} weight="fill" />View on GitHub<span className="arrow"><ArrowUpRight size={15} weight="bold" /></span>
-                  </a>
-                  <a className="btn" href="#demo"><Play size={16} weight="fill" />Watch the demo flow</a>
+                  <Magnet>
+                    <a className="btn btn-dark" href={REPO}>
+                      <GithubLogo size={18} weight="fill" />View on GitHub<span className="arrow"><ArrowUpRight size={15} weight="bold" /></span>
+                    </a>
+                  </Magnet>
+                  <Magnet><a className="btn" href="#demo"><Play size={16} weight="fill" />Watch the demo flow</a></Magnet>
                 </div>
+                <CipherTicker />
               </div>
               <div className="mark-card">
+                <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
                 <HalftoneMark />
                 <div className="mark-status">
                   <span className="live"><i /><span><b>Sandbox on</b>, offline</span></span>
-                  <span>Hover the lattice</span>
+                  <TextType
+                    as="span" className="typed"
+                    text={["lattice scan ./estate", "lattice trace --duration 300", "lattice sandbox-check", "lattice ci --fail-on high"]}
+                    typingSpeed={55} deletingSpeed={25} pauseDuration={1800} cursorCharacter="_"
+                  />
                 </div>
               </div>
             </div>
             <div className="stats">
-              {stats.map((s) => (
-                <div className="stat" key={s.value}><b>{s.value}</b><span>{s.label}</span></div>
+              {stats.map((s, k) => (
+                <AnimatedContent key={s.label} distance={40} delay={k * 0.08} duration={0.7}>
+                  <SpotlightCard className="stat" spotlightColor="rgba(255, 91, 26, 0.18)">
+                    <b className="num"><CountUp to={s.to} separator="," duration={1.6} delay={0.15 + k * 0.1} />{s.suffix ?? ""}</b>
+                    <span>{s.label}</span>
+                  </SpotlightCard>
+                </AnimatedContent>
               ))}
             </div>
           </div>
         </section>
 
-        <div className="divider" />
+        <div className="velocity-band" aria-hidden="true">
+          <ScrollVelocity
+            velocity={36} numCopies={5}
+            texts={[
+              <span key="old" className="v-old">RSA-2048 · ECDSA P-256 · X25519 · 3DES-CBC · TLS 1.0 · MD5 · AES-ECB ·</span>,
+              <span key="new" className="v-new">ML-KEM-768 · ML-DSA-65 · SLH-DSA · AES-256-GCM · SHA-384 · X25519MLKEM768 ·</span>,
+            ]}
+          />
+        </div>
 
-        <section className="section" id="why" aria-labelledby="why-title">
-          <div className="wrap split">
-            <div className="section-head">
-              <h2 id="why-title">The recording has already started.</h2>
-              <p className="lead">
-                Traffic recorded today can be decrypted once a quantum computer breaks RSA and elliptic curves. What decides the
-                risk is how long each secret must stay secret. Drag the year and see what a 2026 recording gives away.
+        {/* ---------- 1. the letter ---------- */}
+        <Chapter id="why" tone="dark">
+          <div className="film-letter">
+            <dl>
+              <dt>FROM</dt><dd>an adversary, 2032</dd>
+              <dt>TO</dt><dd>the operators of payments-api</dd>
+            </dl>
+            <TextType
+              as="h2" className="film-line"
+              text="Thank you for the traffic you sent us in 2026. We opened it this morning."
+              typingSpeed={38} initialDelay={350} loop={false} startOnVisible cursorCharacter="_"
+            />
+            <small>A thought experiment. The recording in LATTICE&apos;s demo estate is real.</small>
+          </div>
+        </Chapter>
+
+        <section className="section" aria-labelledby="harvest-title">
+          <div className="wrap">
+            <div className="section-head center">
+              <h2 id="harvest-title">The recording has <span className="accent">already started.</span></h2>
+              <p className="loop-line">
+                <RotatingText
+                  texts={["Harvest now, decrypt later.", "Trust now, forge later."]} splitBy="words"
+                  mainClassName="rot-words" staggerDuration={0.06} rotationInterval={3200}
+                  initial={{ y: "60%", opacity: 0, filter: "blur(6px)" }} animate={{ y: 0, opacity: 1, filter: "blur(0px)" }} exit={{ y: "-60%", opacity: 0, filter: "blur(6px)" }}
+                  transition={loop}
+                />
               </p>
-              <div className="letter">
-                <dl>
-                  <dt>FROM</dt><dd>an adversary, 2032</dd>
-                  <dt>TO</dt><dd>the operators of payments-api</dd>
-                </dl>
-                <blockquote>Thank you for the traffic you sent us in 2026. We opened it this morning.<span className="caret" aria-hidden="true" /></blockquote>
-                <small>A thought experiment. The packet capture in LATTICE&apos;s demo estate is real.</small>
-              </div>
-              <div className="facts-list">
-                <div className="fact-row">
-                  <span className="glyph"><Detective size={20} weight="duotone" /></span>
-                  <div><h3>Harvest now, decrypt later</h3><p>Confidentiality of long-lived data, such as identity and payment records.</p></div>
-                </div>
-                <div className="fact-row">
-                  <span className="glyph"><Signature size={20} weight="duotone" /></span>
-                  <div><h3>Trust now, forge later</h3><p>Authenticity of certificates, signed tokens and firmware while they stay trusted.</p></div>
-                </div>
-              </div>
             </div>
-            <Harvest />
+            <AnimatedContent distance={60}><Harvest /></AnimatedContent>
           </div>
         </section>
 
-        <div className="divider" />
+        {/* ---------- 2. find ---------- */}
+        <Chapter id="find" text="Find every cipher, *wherever* it *hides.*" note="source · binaries · certificates · config · IaC · images · traffic · processes · key custody" />
 
-        <section className="section" id="how" aria-labelledby="how-title">
+        <section className="section tight" aria-label="How LATTICE works">
           <div className="wrap">
-            <div className="section-head">
-              <h2 id="how-title">One pass from raw estate to a dated plan.</h2>
-              <p className="lead">Three stages in one offline binary. Every finding keeps its file and line; every score keeps the terms it was computed from.</p>
-            </div>
             <div className="pipeline">
-              <article className="card stage">
-                <div className="stage-top"><span className="stage-icon"><MagnifyingGlass size={26} weight="duotone" /></span><span className="stage-n">01</span></div>
-                <h3>Discover every artefact</h3>
-                <p>Collectors read nine kinds of evidence and merge them into one asset per algorithm, key or protocol.</p>
-                <ul>
-                  <li><CheckCircle size={15} weight="fill" /><span>Algorithm, key size, mode, padding and curve</span></li>
-                  <li><CheckCircle size={15} weight="fill" /><span>Keys kept as fingerprints, never copied</span></li>
-                </ul>
-              </article>
-              <article className="card stage">
-                <div className="stage-top"><span className="stage-icon"><ShareNetwork size={26} weight="duotone" /></span><span className="stage-n">02</span></div>
-                <h3>Connect it to what it protects</h3>
-                <p>A crypto graph links entry points to functions, cryptography and data, each data class with its secrecy lifetime.</p>
-                <ul>
-                  <li><CheckCircle size={15} weight="fill" /><span>Capable, Configured or Confirmed, with the reason</span></li>
-                  <li><CheckCircle size={15} weight="fill" /><span>Evidence graded A to D by independent layers</span></li>
-                </ul>
-              </article>
-              <article className="card stage">
-                <div className="stage-top"><span className="stage-icon"><ChartBar size={26} weight="duotone" /></span><span className="stage-n">03</span></div>
-                <h3>Decide what to fix first</h3>
-                <p>Quantum breakability, exposure, Mosca per asset and a crypto-agility score set the priority and the replacement.</p>
-                <ul>
-                  <li><CheckCircle size={15} weight="fill" /><span>Byte cost and effort in person-weeks</span></li>
-                  <li><CheckCircle size={15} weight="fill" /><span>Four waves due against the DST timeline</span></li>
-                </ul>
-              </article>
+              {[
+                { n: "01", Icon: MagnifyingGlass, t: "Discover", d: "Nine collectors read the estate. Nothing is run." },
+                { n: "02", Icon: ShareNetwork, t: "Connect", d: "Every finding is tied to the data it protects." },
+                { n: "03", Icon: ChartBar, t: "Decide", d: "Risk, deadline, fix and cost for every asset." },
+              ].map(({ n, Icon, t, d }, k) => (
+                <AnimatedContent key={n} distance={50} delay={k * 0.12}>
+                  <SpotlightCard className="stage" spotlightColor="rgba(255, 91, 26, 0.16)">
+                    <div className="stage-top"><span className="stage-icon"><Icon size={26} weight="duotone" /></span><span className="stage-n">{n}</span></div>
+                    <h3>{t}</h3>
+                    <p>{d}</p>
+                  </SpotlightCard>
+                </AnimatedContent>
+              ))}
             </div>
+            <AnimatedContent distance={60}><EvidenceExplorer /></AnimatedContent>
           </div>
         </section>
 
-        <div className="divider" />
+        {/* ---------- 3. proof ---------- */}
+        <Chapter id="proof" tone="dark" text="Not what *could* run. What *does* run." note="kernel uprobes · OpenSSL · BoringSSL · AWS-LC · rustls · Go · Java" />
 
-        <section className="section" id="evidence" aria-labelledby="evidence-title">
-          <div className="wrap">
-            <div className="section-head">
-              <h2 id="evidence-title">Nine kinds of evidence, one inventory.</h2>
-              <p className="lead">Pick a source to see what LATTICE read, the rule that matched and what it concluded. Every example comes from the demo estate or a recorded run.</p>
-            </div>
-            <EvidenceExplorer />
-          </div>
-        </section>
-
-        <section className="section proof" id="proof" aria-labelledby="proof-title">
+        <section className="section proof" aria-labelledby="proof-title">
           <LaserFlow targetId="trace-card" />
           <div className="wrap proof-grid">
-            <div>
-              <h2 id="proof-title">Evidence from the running system.</h2>
-              <p className="lead" style={{ marginTop: 18 }}>
-                A library that can do RSA is a different risk from a service that uses it. Every asset records how far it has been
-                proven, and by what.
+            <div className="proof-copy">
+              <h2 id="proof-title">Watch cryptography happen.</h2>
+              <p className="lead">
+                <code>lattice trace</code> listens inside{" "}
+                <RotatingText
+                  texts={["OpenSSL 3", "BoringSSL", "AWS-LC", "rustls", "Go", "Java"]}
+                  mainClassName="rot-inline" staggerDuration={0.02} rotationInterval={2600}
+                  initial={{ y: "100%", opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: "-110%", opacity: 0 }} transition={loop}
+                />
+                {" "}while it runs.
               </p>
-              <div className="states">
-                <div className="state">
-                  <span className="glyph"><Cpu size={22} weight="duotone" /></span>
-                  <div><h3>Capable <span>weight 0.4</span></h3><p>A library can do it: OpenSSL 3.0.13 inside the payments image.</p></div>
-                </div>
-                <div className="state">
-                  <span className="glyph"><FileCode size={22} weight="duotone" /></span>
-                  <div><h3>Configured <span>weight 0.7</span></h3><p>Code or configuration selects it: ssl_protocols TLSv1 in nginx.conf.</p></div>
-                </div>
-                <div className="state">
-                  <span className="glyph"><SealCheck size={22} weight="duotone" /></span>
-                  <div><h3>Confirmed <span>weight 1.0</span></h3><p>Reached from an entry point, seen on the wire, or called by a running process.</p></div>
-                </div>
-              </div>
-              <ul className="tracers">
-                <li><Lightning size={18} weight="fill" /><span>OpenSSL 3<small>libcrypto and libssl</small></span></li>
-                <li><Lightning size={18} weight="fill" /><span>BoringSSL and AWS-LC<small>their own entry points</small></span></li>
-                <li><Lightning size={18} weight="fill" /><span>rustls<small>on AWS-LC or ring</small></span></li>
-                <li><Lightning size={18} weight="fill" /><span>Go<small>stripped binaries too</small></span></li>
-                <li><Lightning size={18} weight="fill" /><span>Java<small>its Flight Recorder, no root</small></span></li>
-                <li><Lightning size={18} weight="fill" /><span>Setup ignored<small>only real use is recorded</small></span></li>
-              </ul>
+              <ol className="ladder">
+                <li><b>Capable</b><span>a library can</span><em>0.4</em></li>
+                <li><b>Configured</b><span>code selects it</span><em>0.7</em></li>
+                <li className="top"><b>Confirmed</b><span>seen running</span><em>1.0</em></li>
+              </ol>
             </div>
             <div className="trace-slot"><TraceCard /></div>
           </div>
         </section>
 
-        <section className="section" id="mosca" aria-labelledby="mosca-title">
+        {/* ---------- 4. deadline ---------- */}
+        <Chapter id="deadline" text="Every asset gets a *deadline.*" note="X + Y > Z  means the data is still secret when the quantum computer arrives" />
+
+        <section className="section tight" aria-labelledby="mosca-title">
           <div className="wrap split">
             <div className="section-head">
-              <h2 id="mosca-title">A deadline on one line of code.</h2>
+              <h2 id="mosca-title" className="equation-big">
+                <span className="x">X</span> + <span className="y">Y</span> &gt; <span className="z">Z</span>
+              </h2>
+              <dl className="terms">
+                <div><dt className="x">X</dt><dd>years the data must stay secret</dd></div>
+                <div><dt className="y">Y</dt><dd>years the migration takes</dd></div>
+                <div><dt className="z">Z</dt><dd>years until Q-day, 2030 to 2035</dd></div>
+              </dl>
+            </div>
+            <AnimatedContent distance={60}><MoscaLab /></AnimatedContent>
+          </div>
+        </section>
+
+        {/* ---------- 5. plan ---------- */}
+        <Chapter id="plan" text="Then a plan, with *dates* and a *budget.*" note="34 changes · 4 waves · 167.5 person-weeks · due 2027 to 2029" />
+
+        <section className="section tight" aria-label="The migration roadmap">
+          <div className="wrap">
+            <AnimatedContent distance={60}><RoadmapExplorer /></AnimatedContent>
+          </div>
+        </section>
+
+        {/* ---------- 6. trust ---------- */}
+        <Chapter id="trust" tone="dark" text="A scanner that *cannot* leak what it reads." note="landlock · seccomp · no network · no programs · targets read-only" />
+
+        <section className="section tight" aria-label="Why LATTICE can be trusted">
+          <div className="wrap trust-grid">
+            <AnimatedContent distance={60}><SandboxProbe /></AnimatedContent>
+            <div className="pillars">
+              {[
+                { Icon: Signature, t: "Signed with ML-DSA-65", d: "Change one byte and verification names the part." },
+                { Icon: Fingerprint, t: "Reproducible", d: "The same bytes on Linux, Windows and macOS." },
+                { Icon: SealCheck, t: "It inventories itself", d: "Every release ships its own CBOM and SBOM." },
+                { Icon: HardDrives, t: "Air-gap ready", d: "Signed updates, with rollback protection." },
+              ].map(({ Icon, t, d }, k) => (
+                <AnimatedContent key={t} distance={40} delay={k * 0.08}>
+                  <SpotlightCard className="pillar" spotlightColor="rgba(255, 91, 26, 0.16)">
+                    <span className="glyph"><Icon size={24} weight="duotone" /></span>
+                    <h3>{t}</h3>
+                    <p>{d}</p>
+                  </SpotlightCard>
+                </AnimatedContent>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ---------- 7. demo ---------- */}
+        <Chapter id="demo" text="Three minutes. *Offline.* Everything live." note="scripts/demo.sh · 10 scenes · the network stays off from the first scan to the last frame" />
+
+        <section className="section tight" aria-label="The demo video, scene by scene">
+          <div className="wrap">
+            <AnimatedContent distance={60}><Storyboard /></AnimatedContent>
+          </div>
+        </section>
+
+        {/* ---------- closing ---------- */}
+        <section className="section closing-section" aria-labelledby="close-title">
+          <div className="wrap closing">
+            <div className="closing-copy">
+              <div aria-hidden="true"><BlurText text="India's deadline starts with an inventory." className="closing-title" delay={90} animateBy="words" direction="bottom" /></div>
+              <h2 id="close-title" className="sr-only">India&apos;s deadline starts with an inventory.</h2>
               <p className="lead">
-                Mosca adds how long data must stay secret (X) to how long the migration takes (Y) and compares it with the years
-                before a quantum computer arrives (Z). LATTICE computes it for every asset it can break, from the path that reaches it.
+                <ShinyText text="The inventory, the proof and the plan. One offline binary you can verify." color="#55544F" shineColor="#FF5B1A" speed={3.2} spread={110} />
               </p>
-              <div className="facts-list">
-                <div className="fact-row">
-                  <span className="glyph"><FileCode size={20} weight="duotone" /></span>
-                  <div><h3>payments-api/app/server.py:8</h3><p>POST /v1/payments reaches tokenize_card, which protects card numbers with RSA-2048. Agility 10, card data 10 years: already late.</p></div>
-                </div>
-              </div>
-            </div>
-            <MoscaLab />
-          </div>
-        </section>
-
-        <div className="divider" />
-
-        <section className="section" id="roadmap" aria-labelledby="roadmap-title">
-          <div className="wrap">
-            <div className="section-head">
-              <h2 id="roadmap-title">From findings to a dated budget.</h2>
-              <p className="lead">
-                Urgent changes that are cheap go first; urgent changes that need engineering follow. This is the real plan for the
-                demo estate, each wave due against India&apos;s timeline.
-              </p>
-            </div>
-            <RoadmapExplorer />
-          </div>
-        </section>
-
-        <div className="divider" />
-
-        <section className="section" id="trust" aria-labelledby="trust-title">
-          <div className="wrap">
-            <div className="section-head">
-              <h2 id="trust-title">A scanner that cannot leak what it reads.</h2>
-              <p className="lead">Before it opens a single file, LATTICE asks the Linux kernel to take away its own network and its ability to start programs, and makes the estate read-only.</p>
-            </div>
-            <div className="trust-grid">
-              <SandboxProbe />
-              <div className="pillars">
-                <div className="card pillar"><span className="glyph"><Signature size={24} weight="duotone" /></span><h3>Signed with ML-DSA-65</h3><p>CBOMs, PDF reports and release SBOMs carry FIPS 204 signatures. Change one byte and verification names the part.</p></div>
-                <div className="card pillar"><span className="glyph"><Fingerprint size={24} weight="duotone" /></span><h3>Reproducible</h3><p>The same commit gives the same bytes. The demo&apos;s CBOM is identical on Linux, Windows and macOS.</p></div>
-                <div className="card pillar"><span className="glyph"><SealCheck size={24} weight="duotone" /></span><h3>It inventories itself</h3><p>Every release ships LATTICE&apos;s own CBOM and a signed SBOM of everything inside.</p></div>
-                <div className="card pillar"><span className="glyph"><HardDrives size={24} weight="duotone" /></span><h3>Air-gap ready</h3><p>Knowledge and rules are compiled in. Updates arrive as signed bundles with rollback protection.</p></div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div className="divider" />
-
-        <section className="section" id="demo" aria-labelledby="demo-title">
-          <div className="wrap">
-            <div className="section-head">
-              <h2 id="demo-title">The demo, shot by shot.</h2>
-              <p className="lead">Three minutes, ten scenes, everything live and rehearsed with scripts/demo.sh. The network stays off from the first scan to the last frame.</p>
-            </div>
-            <Storyboard />
-          </div>
-        </section>
-
-        <div className="divider" />
-
-        <section className="section" aria-labelledby="close-title">
-          <div className="wrap">
-            <div className="card closing">
-              <div>
-                <h2 id="close-title">India&apos;s deadline starts with an inventory.</h2>
-                <p className="lead" style={{ marginTop: 16 }}>LATTICE delivers the inventory, the proof and the plan, in one offline binary you can verify.</p>
-                <div className="standards">
-                  <span>FIPS 203</span><span>FIPS 204</span><span>FIPS 205</span><span>NIST IR 8547</span><span>CycloneDX 1.6</span><span>DST Task Force 2026</span>
-                </div>
-              </div>
               <div className="cta">
-                <a className="btn btn-dark" href={REPO}><GithubLogo size={18} weight="fill" />Read the code<span className="arrow"><ArrowUpRight size={15} weight="bold" /></span></a>
+                <Magnet>
+                  <a className="btn btn-dark" href={REPO}><GithubLogo size={18} weight="fill" />Read the code<span className="arrow"><ArrowUpRight size={15} weight="bold" /></span></a>
+                </Magnet>
+              </div>
+              <div className="standards">
+                <span>FIPS 203</span><span>FIPS 204</span><span>FIPS 205</span><span>NIST IR 8547</span><span>CycloneDX 1.6</span><span>DST Task Force 2026</span>
+              </div>
+            </div>
+            <div className="mark-card safe">
+              <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
+              <HalftoneMark tone="safe" />
+              <div className="mark-status">
+                <span className="live pq"><i /><span><b>After migration</b></span></span>
+                <TextType as="span" className="typed" text={["X25519MLKEM768", "ML-DSA-65", "AES-256-GCM", "SHA-384"]} typingSpeed={60} deletingSpeed={28} pauseDuration={1600} cursorCharacter="_" />
               </div>
             </div>
           </div>
@@ -283,8 +311,9 @@ export default function Home() {
               by team DoodleByte. Version 1.0.1, Apache License 2.0.
             </p>
             <p className="credits">
-              Laser background ported from LaserFlow in React Bits by David Haz (MIT + Commons Clause). Icons from Phosphor (MIT).
-              Type set in Satoshi (Indian Type Foundry) and Plus Jakarta Sans.
+              Animations from React Bits by David Haz (MIT + Commons Clause): LaserFlow, DecryptedText, RotatingText, TextType,
+              ScrollReveal, ScrollVelocity, BlurText, ShinyText, CountUp, SpotlightCard, AnimatedContent, Magnet and ClickSpark.
+              Icons from Phosphor (MIT). Type set in Satoshi (Indian Type Foundry) and Plus Jakarta Sans.
             </p>
           </div>
           <div className="foot-links">

@@ -56,7 +56,7 @@ export default function Storyboard() {
         </div>
       </div>
 
-      <div className="scene" role="tabpanel" aria-live="polite">
+      <div className="scene fade-in" key={i} role="tabpanel" aria-live="polite">
         <time>
           {clock(s.at)}
           <small>to {clock(end)}</small>
