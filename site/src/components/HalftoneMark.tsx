@@ -11,9 +11,10 @@ const PAPER = "#D9D7D0";
 /**
  * The lattice mark drawn in dots. A lens follows the cursor and magnifies the dots under it;
  * without a cursor (touch, or at rest) the lens drifts on its own. Draws only while visible.
- * `tone` colours it: orange for cryptography at risk, blue once it is post-quantum.
+ * `tone` colours it: orange for cryptography at risk, blue once it is post-quantum. With `text`,
+ * a word is drawn in dots instead of the mark.
  */
-export default function HalftoneMark({ tone = "risk" }: { tone?: keyof typeof TONES }) {
+export default function HalftoneMark({ tone = "risk", text }: { tone?: keyof typeof TONES; text?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const readout = useRef<HTMLSpanElement>(null);
 
@@ -41,13 +42,33 @@ export default function HalftoneMark({ tone = "risk" }: { tone?: keyof typeof TO
       c.width = Math.round(W * dpr);
       c.height = Math.round(H * dpr);
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
-      spacing = W < 420 ? 7.5 : 9;
+      spacing = W < 420 ? 7.5 : text ? 8 : 9;
 
       // the mark, drawn once off screen, then sampled at every grid point
       const off = document.createElement("canvas");
       off.width = Math.ceil(W);
       off.height = Math.ceil(H);
       const o = off.getContext("2d", { willReadFrequently: true })!;
+      if (text) {
+        center = { x: W / 2, y: H / 2 };
+        let size = H * 0.9;
+        o.font = `900 ${size}px Satoshi, sans-serif`;
+        size *= Math.min(1, (W * 0.96) / Math.max(1, o.measureText(text).width));
+        o.font = `900 ${size}px Satoshi, sans-serif`;
+        o.textAlign = "center";
+        o.textBaseline = "middle";
+        o.fillText(text, W / 2, H * 0.54);
+        const ink = o.getImageData(0, 0, off.width, off.height).data;
+        dots = [];
+        for (let y = spacing / 2; y < H; y += spacing) {
+          for (let x = spacing / 2; x < W; x += spacing) {
+            dots.push({ x, y, shape: ink[((y | 0) * off.width + (x | 0)) * 4 + 3] > 128, core: false, line: false });
+          }
+        }
+        lens.x = W * 0.2;
+        lens.y = H / 2;
+        return;
+      }
       const s = Math.min(W * 0.66, H * 0.64);
       center = { x: W / 2, y: H * 0.43 };
       const x0 = center.x - s / 2, y0 = center.y - s / 2, step = s / 2;
@@ -88,12 +109,12 @@ export default function HalftoneMark({ tone = "risk" }: { tone?: keyof typeof TO
         lens.x += (pointer.x - lens.x) * 0.18;
         lens.y += (pointer.y - lens.y) * 0.18;
       } else if (!reduce) {
-        const tx = center.x + Math.cos(t * 0.00035) * W * 0.26;
-        const ty = center.y + Math.sin(t * 0.00047) * H * 0.2;
+        const tx = center.x + Math.cos(t * 0.00035) * W * (text ? 0.4 : 0.26);
+        const ty = center.y + Math.sin(t * 0.00047) * H * (text ? 0.25 : 0.2);
         lens.x += (tx - lens.x) * 0.04;
         lens.y += (ty - lens.y) * 0.04;
       }
-      const R = Math.min(W, H) * (reduce ? 0 : 0.21);
+      const R = reduce ? 0 : text ? H * 0.42 : Math.min(W, H) * 0.21;
       const batches: Record<string, Path2D> = { [ACCENT]: new Path2D(), [INK]: new Path2D(), [PAPER]: new Path2D() };
       for (const d of dots) {
         const dx = d.x - lens.x, dy = d.y - lens.y;
@@ -149,6 +170,8 @@ export default function HalftoneMark({ tone = "risk" }: { tone?: keyof typeof TO
     io.observe(canvas);
     build();
     draw(0);
+    // a word is sampled from the font, so sample it again once Satoshi has arrived
+    if (text) document.fonts?.load("900 100px Satoshi").then(() => { build(); draw(performance.now()); });
     if (!reduce) raf = requestAnimationFrame(loop);
 
     return () => {
@@ -158,12 +181,12 @@ export default function HalftoneMark({ tone = "risk" }: { tone?: keyof typeof TO
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerleave", onLeave);
     };
-  }, [tone]);
+  }, [tone, text]);
 
   return (
     <>
-      <canvas ref={ref} aria-label="The LATTICE mark in dots. Move the cursor over it to look closer." role="img" />
-      <span className="lens-readout" ref={readout} aria-hidden="true" />
+      <canvas ref={ref} aria-label={text ? `${text}, in dots` : "The LATTICE mark in dots. Move the cursor over it to look closer."} role="img" />
+      {!text && <span className="lens-readout" ref={readout} aria-hidden="true" />}
     </>
   );
 }

@@ -9,7 +9,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 type Props = { children: ReactNode; padding?: number; magnetStrength?: number; className?: string };
 
-export default function Magnet({ children, padding = 70, magnetStrength = 4, className = "" }: Props) {
+export default function Magnet({ children, padding = 30, magnetStrength = 14, className = "" }: Props) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
 

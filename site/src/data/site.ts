@@ -92,6 +92,7 @@ export const surfaces: Surface[] = [
   },
 ];
 
+// What `lattice trace` recorded inside LATTICE's own server (rustls on AWS-LC) while curl connected
 export const trace = [
   { fn: "X25519_keypair", alg: "X25519", kind: "v", calls: 3 },
   { fn: "EVP_PKEY_kem_new_raw_public_key", alg: "ML-KEM-768", kind: "q", calls: 2 },
@@ -153,18 +154,58 @@ export const probes = [
   { id: "write", label: "Write to the output folder", layer: "filesystem", expected: "allowed" },
 ] as const;
 
-export type Scene = { at: number; title: string; screen: string; point: string; key?: boolean };
+export type Runtime = {
+  id: string;
+  name: string;
+  how: string;
+  detail: string;
+  listens: string[];
+  reads: string;
+  note: string;
+};
 
-export const scenes: Scene[] = [
-  { at: 0, title: "A letter from 2032", screen: "Black screen. The adversary's note types out, line by line.", point: "Harvest now, decrypt later is already happening." },
-  { at: 12, title: "The recording exists", screen: "edge-traffic.pcap inside the demo estate.", point: "Which secrets are in it, and how long must they stay secret?" },
-  { at: 25, title: "Unplug, then lock down", screen: "Airplane mode on. lattice sandbox-check shows network, programs and writes denied.", point: "The scanner cannot leak what it reads." },
-  { at: 40, title: "One scan", screen: "lattice scan: 49 assets in 0.18 s from code, configuration, certificates, an image and the capture.", point: "Nine kinds of evidence, one inventory." },
-  { at: 60, title: "Watch cryptography happen", screen: "Split screen: lattice trace records while curl connects. X25519, ML-KEM-768 and AES-256-GCM appear.", point: "No source, no restart, no agent. Assets turn Confirmed.", key: true },
-  { at: 95, title: "A clock on one line of code", screen: "The cockpit graph from POST /v1/payments to RSA-2048 and card data. The drawer shows 10 + 3.85 > 9.", point: "This line is already late. TLS 1.0 is as urgent but costs one config line.", key: true },
-  { at: 125, title: "The plan", screen: "The roadmap: four waves due 2027, 2028 and 2029, 167.5 person-weeks.", point: "A mandate becomes a budget line." },
-  { at: 140, title: "Try to break it", screen: "Sign with ML-DSA, change one byte, verification names the part. A commit adds MD5 and lattice ci fails.", point: "It stops you going backwards." },
-  { at: 160, title: "The reveal", screen: "The Wi-Fi icon, still off. The same CBOM bytes on Linux, Windows and macOS.", point: "Everything ran offline." },
-  { at: 170, title: "Back to 2032", screen: "The letter again: “It's X25519MLKEM768. There is nothing to read.” Logo, SIH26164, GitHub.", point: "The inventory, the proof and the plan. Today." },
+// The runtimes `lattice trace` listens inside, and how (crates/lattice-tracer)
+export const runtimes: Runtime[] = [
+  {
+    id: "openssl", name: "OpenSSL", how: "Kernel uprobes",
+    detail: "Probes on libcrypto and libssl, in every running program that loads them.",
+    listens: ["EVP_CIPHER_fetch", "EVP_SIGNATURE_fetch", "EVP_KEM_fetch", "RSA_generate_key_ex", "SSL_CTX_set1_groups_list"],
+    reads: "the algorithm name, key size or cipher list the program asks for",
+    note: "Setup is not use: every call inside OPENSSL_init_crypto and SSL_CTX_new_ex is ignored.",
+  },
+  {
+    id: "boringssl", name: "BoringSSL", how: "Kernel uprobes",
+    detail: "Its own entry points, where the function is the algorithm.",
+    listens: ["X25519_keypair", "MLKEM768_encap", "EVP_aead_aes_256_gcm_tls13", "ECDSA_sign", "ED25519_sign"],
+    reads: "the call itself: X25519_keypair is X25519",
+    note: "Its TLS settings are real functions, so group and cipher lists are read too.",
+  },
+  {
+    id: "awslc", name: "AWS-LC", how: "Kernel uprobes",
+    detail: "Amazon's fork of BoringSSL, with ML-KEM and ML-DSA named by NID.",
+    listens: ["EVP_PKEY_CTX_kem_set_params", "EVP_PKEY_kem_new_raw_public_key", "EVP_PKEY_CTX_pqdsa_set_params", "aes_hw_set_encrypt_key"],
+    reads: "the NID or key size: NID 989 is ML-KEM-768, 256 bits is AES-256",
+    note: "Symbols of the FIPS build, prefixed aws_lc_fips_, are read the same way.",
+  },
+  {
+    id: "rustls", name: "rustls", how: "Kernel uprobes",
+    detail: "Linked statically on AWS-LC or ring, found inside running Rust programs.",
+    listens: ["aws_lc_0_45_0_X25519", "ring_core_0_17_14_aes_hw_set_encrypt_key", "chacha20_poly1305_seal", "x25519_scalar_mult_adx"],
+    reads: "the versioned symbol, with its prefix stripped to the real function",
+    note: "Recorded live inside LATTICE's own server: hybrid X25519MLKEM768 in use.",
+  },
+  {
+    id: "go", name: "Go", how: "Uprobes, Go ABI",
+    detail: "Go compiles crypto/... into every binary. Functions are found in .gopclntab, even when stripped.",
+    listens: ["crypto/mlkem.GenerateKey768", "crypto/aes.NewCipher", "crypto/rsa.GenerateKey", "crypto/ecdsa.SignASN1", "crypto/md5.Sum"],
+    reads: "Go's register arguments: a 32-byte key to crypto/aes is AES-256",
+    note: "TLS key exchanges are read by their CurveID, so X25519MLKEM768 is told from X25519.",
+  },
+  {
+    id: "java", name: "Java", how: "Flight Recorder",
+    detail: "The JVM records it itself. A recording starts with jcmd and ends on its own; nothing is injected.",
+    listens: ["jdk.SecurityProviderService", "jdk.TLSHandshake", "jdk.X509Certificate"],
+    reads: "Cipher AES/GCM/NoPadding from SunJCE, the TLS suite, the certificate key",
+    note: "No root for your own JVMs. Lookups from static initialisers count as setup.",
+  },
 ];
-export const DEMO_LENGTH = 180;

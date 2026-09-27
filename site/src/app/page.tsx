@@ -1,5 +1,5 @@
 import {
-  ArrowUpRight, ChartBar, Fingerprint, GithubLogo, HardDrives, MagnifyingGlass, Play, SealCheck, ShareNetwork, Signature,
+  ArrowUpRight, ChartBar, Fingerprint, GithubLogo, HardDrives, MagnifyingGlass, Pulse, SealCheck, ShareNetwork, Signature,
 } from "@phosphor-icons/react/dist/ssr";
 import AnimatedContent from "@/components/bits/AnimatedContent";
 import BlurText from "@/components/bits/BlurText";
@@ -19,21 +19,20 @@ import HalftoneMark from "@/components/HalftoneMark";
 import Harvest from "@/components/Harvest";
 import LaserFlow from "@/components/LaserFlow";
 import LatticeLogo from "@/components/LatticeLogo";
+import Listeners from "@/components/Listeners";
 import MoscaLab from "@/components/MoscaLab";
 import RoadmapExplorer from "@/components/RoadmapExplorer";
 import SandboxProbe from "@/components/SandboxProbe";
 import ScrollRail from "@/components/ScrollRail";
-import Storyboard from "@/components/Storyboard";
-import TraceCard from "@/components/TraceCard";
 import { REPO, stats } from "@/data/site";
 
 const NAV = [
-  ["#why", "Why now"], ["#find", "How it works"], ["#proof", "Proof"], ["#deadline", "Deadlines"], ["#trust", "Trust"], ["#demo", "Demo"],
+  ["#why", "Why now"], ["#find", "How it works"], ["#proof", "Proof"], ["#deadline", "Deadlines"], ["#plan", "Plan"], ["#trust", "Trust"],
 ] as const;
 
 const CHAPTERS = [
   { id: "why", label: "The letter" }, { id: "find", label: "Find" }, { id: "proof", label: "Proof" }, { id: "deadline", label: "Deadline" },
-  { id: "plan", label: "Plan" }, { id: "trust", label: "Trust" }, { id: "demo", label: "Demo" },
+  { id: "plan", label: "Plan" }, { id: "trust", label: "Trust" },
 ];
 
 const loop = { type: "spring", damping: 30, stiffness: 380 } as const;
@@ -86,7 +85,7 @@ export default function Home() {
                       <GithubLogo size={18} weight="fill" />View on GitHub<span className="arrow"><ArrowUpRight size={15} weight="bold" /></span>
                     </a>
                   </Magnet>
-                  <Magnet><a className="btn" href="#demo"><Play size={16} weight="fill" />Watch the demo flow</a></Magnet>
+                  <Magnet><a className="btn" href="#proof"><Pulse size={16} weight="bold" />See it listen</a></Magnet>
                 </div>
                 <CipherTicker />
               </div>
@@ -186,27 +185,14 @@ export default function Home() {
         {/* ---------- 3. proof ---------- */}
         <Chapter id="proof" tone="dark" text="Not what *could* run. What *does* run." note="kernel uprobes · OpenSSL · BoringSSL · AWS-LC · rustls · Go · Java" />
 
-        <section className="section proof" aria-labelledby="proof-title">
-          <LaserFlow targetId="trace-card" />
-          <div className="wrap proof-grid">
-            <div className="proof-copy">
-              <h2 id="proof-title">Watch cryptography happen.</h2>
-              <p className="lead">
-                <code>lattice trace</code> listens inside{" "}
-                <RotatingText
-                  texts={["OpenSSL 3", "BoringSSL", "AWS-LC", "rustls", "Go", "Java"]}
-                  mainClassName="rot-inline" staggerDuration={0.02} rotationInterval={2600}
-                  initial={{ y: "100%", opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: "-110%", opacity: 0 }} transition={loop}
-                />
-                {" "}while it runs.
-              </p>
-              <ol className="ladder">
-                <li><b>Capable</b><span>a library can</span><em>0.4</em></li>
-                <li><b>Configured</b><span>code selects it</span><em>0.7</em></li>
-                <li className="top"><b>Confirmed</b><span>seen running</span><em>1.0</em></li>
-              </ol>
+        <section className="proof" aria-labelledby="proof-title">
+          <LaserFlow targetId="runtime-panel" />
+          <div className="proof-inner">
+            <div className="proof-head">
+              <h2 id="proof-title">Watch cryptography <span className="accent">happen.</span></h2>
+              <p className="lead"><code>lattice trace</code> listens inside running programs, from the kernel. No source, no restart, no agent. What it sees is marked Confirmed.</p>
             </div>
-            <div className="trace-slot"><TraceCard /></div>
+            <Listeners />
           </div>
         </section>
 
@@ -263,41 +249,26 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ---------- 7. demo ---------- */}
-        <Chapter id="demo" text="Three minutes. *Offline.* Everything live." note="scripts/demo.sh · 10 scenes · the network stays off from the first scan to the last frame" />
-
-        <section className="section tight" aria-label="The demo video, scene by scene">
-          <div className="wrap">
-            <AnimatedContent distance={60}><Storyboard /></AnimatedContent>
-          </div>
-        </section>
-
         {/* ---------- closing ---------- */}
-        <section className="section closing-section" aria-labelledby="close-title">
+        <section className="closing-section" aria-labelledby="close-title">
           <div className="wrap closing">
-            <div className="closing-copy">
-              <div aria-hidden="true"><BlurText text="India's deadline starts with an inventory." className="closing-title" delay={90} animateBy="words" direction="bottom" /></div>
-              <h2 id="close-title" className="sr-only">India&apos;s deadline starts with an inventory.</h2>
-              <p className="lead">
-                <ShinyText text="The inventory, the proof and the plan. One offline binary you can verify." color="#55544F" shineColor="#FF5B1A" speed={3.2} spread={110} />
-              </p>
-              <div className="cta">
-                <Magnet>
-                  <a className="btn btn-dark" href={REPO}><GithubLogo size={18} weight="fill" />Read the code<span className="arrow"><ArrowUpRight size={15} weight="bold" /></span></a>
-                </Magnet>
-              </div>
-              <div className="standards">
-                <span>FIPS 203</span><span>FIPS 204</span><span>FIPS 205</span><span>NIST IR 8547</span><span>CycloneDX 1.6</span><span>DST Task Force 2026</span>
-              </div>
+            <div aria-hidden="true"><BlurText text="India's deadline starts with an inventory." className="closing-title" delay={90} animateBy="words" direction="bottom" /></div>
+            <h2 id="close-title" className="sr-only">India&apos;s deadline starts with an inventory.</h2>
+            <p className="lead">
+              <ShinyText text="The inventory, the proof and the plan. One offline binary you can verify." color="#55544F" shineColor="#FF5B1A" speed={3.2} spread={110} />
+            </p>
+            <div className="cta">
+              <Magnet>
+                <a className="btn btn-dark" href={REPO}><GithubLogo size={18} weight="fill" />Read the code<span className="arrow"><ArrowUpRight size={15} weight="bold" /></span></a>
+              </Magnet>
             </div>
-            <div className="mark-card safe">
-              <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
-              <HalftoneMark tone="safe" />
-              <div className="mark-status">
-                <span className="live pq"><i /><span><b>After migration</b></span></span>
-                <TextType as="span" className="typed" text={["X25519MLKEM768", "ML-DSA-65", "AES-256-GCM", "SHA-384"]} typingSpeed={60} deletingSpeed={28} pauseDuration={1600} cursorCharacter="_" />
-              </div>
+            <div className="standards">
+              <span>FIPS 203</span><span>FIPS 204</span><span>FIPS 205</span><span>NIST IR 8547</span><span>CycloneDX 1.6</span><span>DST Task Force 2026</span>
             </div>
+          </div>
+          <div className="word-wrap">
+            <div className="halftone-word"><HalftoneMark text="LATTICE" /></div>
+            <p className="word-hint">Move the cursor across the word</p>
           </div>
         </section>
       </main>
@@ -311,8 +282,8 @@ export default function Home() {
               by team DoodleByte. Version 1.0.1, Apache License 2.0.
             </p>
             <p className="credits">
-              Animations from React Bits by David Haz (MIT + Commons Clause): LaserFlow, DecryptedText, RotatingText, TextType,
-              ScrollReveal, ScrollVelocity, BlurText, ShinyText, CountUp, SpotlightCard, AnimatedContent, Magnet and ClickSpark.
+              Animations from React Bits by David Haz (MIT + Commons Clause): LaserFlow, TechText, DecryptedText, RotatingText,
+              TextType, ScrollReveal, ScrollVelocity, BlurText, ShinyText, CountUp, SpotlightCard, AnimatedContent, Magnet and ClickSpark.
               Icons from Phosphor (MIT). Type set in Satoshi (Indian Type Foundry) and Plus Jakarta Sans.
             </p>
           </div>

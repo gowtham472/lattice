@@ -17,7 +17,7 @@ estate's scan and roadmap, the OpenSSL 3.5.5 golden scan, the risk policy
 The Mosca calculator uses the engine's own formula, Y = 0.25 + (100 − agility) × 0.04, and Q-day
 range, 2030 to 2035.
 
-The page is told in seven chapters. Each opens with one short line that holds the screen while it
+The page is told in six chapters. Each opens with one short line that holds the screen while it
 is scrolled into focus (`Chapter`), followed by an interactive part:
 
 | Component | What it does |
@@ -25,16 +25,16 @@ is scrolled into focus (`Chapter`), followed by an interactive part:
 | `HalftoneMark` | The lattice mark in dots; a lens follows the cursor, or drifts on its own |
 | `Harvest` | Traffic recorded in 2026, by data class: sealed, readable, or past secrecy in a chosen year |
 | `EvidenceExplorer` | The nine kinds of evidence, each with a real finding |
-| `LaserFlow` + `TraceCard` | A beam falls onto what `lattice trace` recorded inside LATTICE's own server, and lands with sparks |
+| `LaserFlow` + `Listeners` | Full width: a beam falls onto the runtimes `lattice trace` listens inside (OpenSSL, BoringSSL, AWS-LC, rustls, Go, Java), each named in a TechText wordmark over a tab bar |
 | `MoscaLab` | X + Y against Z for any data class and agility score |
 | `RoadmapExplorer` | The demo estate's four waves and their changes |
 | `SandboxProbe` | Replays the probes of `lattice sandbox-check` |
-| `Storyboard` | The three-minute demo video, scene by scene |
+| `HalftoneMark` with `text` | The closing word, LATTICE, in dots under the same lens |
 | `ScrollRail` | A chapter scroll bar at the right edge, and the progress line under the navigation |
 
 Text and motion come from [React Bits](https://reactbits.dev), kept in `src/components/bits`, each
-file noting any change from the published version: DecryptedText, RotatingText, TextType, BlurText,
-ShinyText, CountUp, ScrollVelocity, SpotlightCard, AnimatedContent, Magnet and ClickSpark.
+file noting any change from the published version: TechText, DecryptedText, RotatingText, TextType,
+BlurText, ShinyText, CountUp, ScrollVelocity, SpotlightCard, AnimatedContent, Magnet and ClickSpark.
 Everything holds still when the system asks for reduced motion.
 
 ## Credits

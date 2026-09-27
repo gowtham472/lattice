@@ -167,11 +167,12 @@ export default function LaserFlow({ targetId, color = "#FF5B1A" }: { targetId: s
     let frames: number[] = [], lastCheck = last;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const dt = Math.min(0.033, Math.max(0.001, (now - last) / 1000));
+      const real = Math.max(0.001, (now - last) / 1000);
+      const dt = Math.min(0.033, real);
       last = now;
       if (!visible || hidden) return;
       flow += dt;
-      phaseT += dt;
+      phaseT += Math.min(0.25, real);          // the fall keeps to the clock, even at a low frame rate
       if (phase === "fall") {
         const p = Math.min(1, phaseT / DROP);
         drop = p * p;                             // it accelerates as it falls
