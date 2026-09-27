@@ -144,6 +144,7 @@ exposure and liveness weights, data classes and their secrecy lifetimes.
 | `cockpit` | React cockpit: overview, inventory, crypto graph, roadmap, compare, scans, audit log |
 | `knowledge`, `rules` | Versioned algorithm knowledge, risk policy and detection rules |
 | `examples/demo-estate` | A realistic multi-service estate for demonstration |
+| `site` | The marketing site: Next.js, exported as static files; interactive demos of the model with real results |
 | `packaging`, `scripts` | systemd unit, container image, reproducible releases, the demo, toolchain, fuzzing, golden scan |
 
 ## Validation
