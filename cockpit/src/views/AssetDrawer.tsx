@@ -272,10 +272,10 @@ function MoscaBar({ item, report }: { item: AssetReport; report: Report }) {
   const start = report.provenance.assessmentYear;
   return (
     <div>
-      <div style={{ position: 'relative', height: 26, background: 'var(--bg-sunken)', borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: 30, background: 'var(--bg-sunken)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', left: pos(m.zEarliestYears), width: `calc(${pos(m.zLatestYears)} - ${pos(m.zEarliestYears)})`, top: 0, bottom: 0, background: 'var(--qday)', borderLeft: '1px dashed var(--qday-edge)' }} />
-        <div style={{ position: 'absolute', left: 0, width: pos(m.xYears), top: 7, height: 12, background: 'var(--accent)', borderRadius: 3 }} />
-        <div style={{ position: 'absolute', left: pos(m.xYears), width: pos(m.yYears), top: 7, height: 12, background: 'var(--accent-2)', borderRadius: 3 }} />
+        <div style={{ position: 'absolute', left: 0, width: pos(m.xYears), top: 8, height: 13, background: 'var(--accent)', borderRadius: 7 }} />
+        <div style={{ position: 'absolute', left: pos(m.xYears), width: pos(m.yYears), top: 8, height: 13, background: 'var(--accent-2)', borderRadius: 7 }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between' }} className="faint">
         <span>{start}</span>

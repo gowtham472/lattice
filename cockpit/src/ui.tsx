@@ -64,19 +64,22 @@ export function Icon({ name, size = 16 }: { name: keyof typeof ICONS | string; s
   );
 }
 
-export function Logo() {
+/** The LATTICE mark, as on the site: a lattice of nodes, the one that matters in orange. */
+export function Logo({ size = 32 }: { size?: number }) {
+  const nodes: [number, number][] = [
+    [4, 4], [12, 4], [20, 4], [4, 12], [20, 12], [4, 20], [12, 20], [20, 20],
+  ];
   return (
-    <svg width={30} height={30} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill="var(--bg-raised)" stroke="var(--border-strong)" />
-      <g stroke="var(--accent)" strokeWidth="2" fill="none">
-        <path d="M8 8h16v16H8z" />
-        <path d="M8 16h16M16 8v16" />
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="var(--border-strong)" strokeWidth="1.5" strokeLinecap="round">
+        <path d="M4 4h16M4 12h16M4 20h16M4 4v16M12 4v16M20 4v16M4 4l16 16" />
       </g>
-      <g fill="var(--accent-2)">
-        <circle cx="8" cy="8" r="2.4" />
-        <circle cx="24" cy="24" r="2.4" />
-        <circle cx="16" cy="16" r="2.4" />
+      <g fill="var(--text)">
+        {nodes.map(([cx, cy]) => (
+          <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="2.2" />
+        ))}
       </g>
+      <circle cx="12" cy="12" r="3" fill="var(--accent)" />
     </svg>
   );
 }

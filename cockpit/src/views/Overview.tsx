@@ -100,9 +100,9 @@ function MoscaTimeline({ report, onOpen }: { report: Report; onOpen: (id: string
                 <text x={labelWidth - 10} y={y + 15} fontSize="11" textAnchor="end" fill="var(--text-faint)">
                   {truncate(componentName(row.asset.component, report.subject), 14)}
                 </text>
-                <rect x={x(0)} y={y + 5} width={Math.max(1, x(m.xYears) - x(0))} height={13} rx={3} fill="var(--accent)" opacity={0.85} />
-                <rect x={x(m.xYears)} y={y + 5} width={Math.max(1, x(m.xYears + m.yYears) - x(m.xYears))} height={13} rx={3} fill="var(--accent-2)" opacity={0.85} />
-                <text x={x(m.xYears + m.yYears) + 6} y={y + 15} fontSize="11" fill={m.urgentEvenIfLate ? 'var(--critical)' : m.urgent ? 'var(--high)' : 'var(--safe)'}>
+                <rect x={x(0)} y={y + 5} width={Math.max(1, x(m.xYears) - x(0))} height={14} rx={7} fill="var(--accent)" />
+                <rect x={x(m.xYears)} y={y + 5} width={Math.max(1, x(m.xYears + m.yYears) - x(m.xYears))} height={14} rx={7} fill="var(--accent-2)" />
+                <text x={x(m.xYears + m.yYears) + 8} y={y + 16} fontSize="11.5" fontWeight={600} fill={m.urgentEvenIfLate ? 'var(--critical)' : m.urgent ? 'var(--high)' : 'var(--safe)'}>
                   {years(m.xYears + m.yYears)} {m.urgentEvenIfLate ? '· already late' : m.urgent ? '· migrate now' : '· fits'}
                 </text>
               </g>
@@ -139,7 +139,7 @@ function Heatmap({ report }: { report: Report }) {
             <tr>
               <th>Component</th>
               {TIERS.map((t) => (
-                <th key={t} className="num">
+                <th key={t} className="num" style={{ textTransform: 'capitalize' }}>
                   {t}
                 </th>
               ))}
@@ -171,7 +171,7 @@ function ThreatSplit({ report }: { report: Report }) {
   const threats: Threat[] = ['harvest', 'forge', 'integrity'];
   const vulnerable = report.assets.filter((a) => a.assessment.quantumBreakability >= 0.5 || a.assessment.brokenNow);
   const total = Math.max(1, vulnerable.length);
-  const colors: Record<Threat, string> = { harvest: 'var(--critical)', forge: 'var(--high)', integrity: 'var(--accent-2)' };
+  const colors: Record<Threat, string> = { harvest: 'var(--critical)', forge: 'var(--high)', integrity: 'var(--pq)' };
   return (
     <Panel title="What the attacker gets" hint="vulnerable assets by threat">
       <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: 'var(--bg-sunken)' }}>

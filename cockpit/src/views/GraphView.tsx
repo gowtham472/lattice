@@ -123,7 +123,7 @@ export function GraphView({ report, graph, onOpen }: { report: Report; graph: Gr
       }
     }
     for (const [id, { secrecy }] of [...classes.entries()].sort(([, a], [, b]) => b.secrecy - a.secrecy)) {
-      nodes.push({ id, column: MAX_FUNCTION_DEPTH + 2, label: id.slice(6), sub: `${secrecy} y secrecy`, color: secrecy >= 20 ? 'var(--critical)' : secrecy >= 10 ? 'var(--high)' : 'var(--accent-2)' });
+      nodes.push({ id, column: MAX_FUNCTION_DEPTH + 2, label: id.slice(6), sub: `${secrecy} y secrecy`, color: secrecy >= 20 ? 'var(--critical)' : secrecy >= 10 ? 'var(--high)' : 'var(--low)' });
       shown.add(id);
     }
 
@@ -215,7 +215,7 @@ export function GraphView({ report, graph, onOpen }: { report: Report; graph: Gr
       <div className="graph-canvas">
         <svg width={layout.width} height={layout.height} role="img" aria-label="Crypto exposure graph">
           {layout.headers.map((h, i) => (
-            <text key={h} x={16 + i * COLUMN_WIDTH} y={22} fontSize="11" fill="var(--text-faint)" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <text key={h} x={16 + i * COLUMN_WIDTH} y={24} fontSize="12" fill="var(--text-muted)" style={{ fontWeight: 700 }}>
               {h}
             </text>
           ))}
@@ -233,7 +233,7 @@ export function GraphView({ report, graph, onOpen }: { report: Report; graph: Gr
                 d={`M${x1},${y1} C${x1 + 40},${y1} ${x2 - 40},${y2} ${x2},${y2}`}
                 fill="none"
                 stroke={lit ? 'var(--accent)' : 'var(--border-strong)'}
-                strokeWidth={lit ? 2 : 1}
+                strokeWidth={lit ? 2.2 : 1}
                 opacity={highlighted && !lit ? 0.25 : 0.9}
               />
             );
@@ -251,10 +251,10 @@ export function GraphView({ report, graph, onOpen }: { report: Report; graph: Gr
                 style={{ cursor: n.assetId ? 'pointer' : 'default' }}
               >
                 <title>{`${n.label}${n.sub ? `\n${n.sub}` : ''}`}</title>
-                <rect width={NODE_WIDTH} height={NODE_HEIGHT} rx={6} fill="var(--panel)" stroke={n.color} strokeWidth={1.3} />
-                <rect width={4} height={NODE_HEIGHT} rx={2} fill={n.color} />
-                <text x={10} y={16}>
-                  {n.label.length > 27 ? `${n.label.slice(0, 26)}…` : n.label}
+                <rect width={NODE_WIDTH} height={NODE_HEIGHT} rx={8} fill="var(--panel)" stroke={highlighted?.has(n.id) ? n.color : 'var(--border)'} strokeWidth={highlighted?.has(n.id) ? 1.6 : 1} />
+                <circle cx={11} cy={NODE_HEIGHT / 2} r={3.5} fill={n.color} />
+                <text x={21} y={16}>
+                  {n.label.length > 25 ? `${n.label.slice(0, 24)}…` : n.label}
                 </text>
               </g>
             );
