@@ -28,25 +28,28 @@ pub enum ReportError {
 
 const MARGIN: f32 = 48.0;
 const WIDTH: f32 = PAGE_WIDTH - 2.0 * MARGIN;
-const TOP: f32 = PAGE_HEIGHT - 70.0;
-const BOTTOM: f32 = 64.0;
+const TOP: f32 = PAGE_HEIGHT - 82.0;
+const BOTTOM: f32 = 70.0;
 
-const INK: Color = Color(0.1, 0.12, 0.16);
-const MUTED: Color = Color(0.38, 0.41, 0.47);
-const RULE: Color = Color(0.82, 0.84, 0.87);
-const PANEL: Color = Color(0.95, 0.96, 0.97);
-const WHITE: Color = Color(1.0, 1.0, 1.0);
-const ACCENT: Color = Color(0.09, 0.4, 0.69);
+// The palette of the LATTICE site and cockpit: ink on warm paper, one orange accent.
+const INK: Color = Color(0.071, 0.071, 0.071);
+const MUTED: Color = Color(0.333, 0.329, 0.31);
+const FAINT: Color = Color(0.549, 0.545, 0.522);
+const LINE: Color = Color(0.894, 0.89, 0.871);
+const DASH: Color = Color(0.796, 0.788, 0.761);
+const PAPER: Color = Color(0.957, 0.957, 0.945);
+const ACCENT: Color = Color(1.0, 0.357, 0.102);
+const ACCENT_WASH: Color = Color(1.0, 0.941, 0.91);
 
 const TIERS: [&str; 5] = ["critical", "high", "medium", "low", "info"];
 
 fn tier_color(tier: &str) -> Color {
     match tier {
-        "critical" => Color(0.74, 0.1, 0.14),
-        "high" => Color(0.86, 0.38, 0.05),
-        "medium" => Color(0.78, 0.58, 0.0),
-        "low" => Color(0.2, 0.55, 0.32),
-        _ => Color(0.5, 0.54, 0.6),
+        "critical" => Color(0.847, 0.208, 0.165),
+        "high" => Color(0.91, 0.439, 0.047),
+        "medium" => Color(0.769, 0.569, 0.008),
+        "low" => Color(0.18, 0.42, 1.0),
+        _ => FAINT,
     }
 }
 
@@ -77,6 +80,39 @@ fn pdf_date(rfc3339: &str) -> Option<String> {
     (digits.len() >= 14).then(|| format!("D:{}Z", &digits[..14]))
 }
 
+/// The LATTICE mark: a lattice of nodes, the one that matters in orange. `size` is its width;
+/// (`x`, `y`) is its bottom-left corner.
+fn mark(page: &mut Page, x: f32, y: f32, size: f32) {
+    let unit = size / 24.0;
+    let at = |u: f32, v: f32| (x + u * unit, y + (24.0 - v) * unit);
+    for (a, b) in [
+        ((4.0, 4.0), (20.0, 4.0)),
+        ((4.0, 12.0), (20.0, 12.0)),
+        ((4.0, 20.0), (20.0, 20.0)),
+        ((4.0, 4.0), (4.0, 20.0)),
+        ((12.0, 4.0), (12.0, 20.0)),
+        ((20.0, 4.0), (20.0, 20.0)),
+        ((4.0, 4.0), (20.0, 20.0)),
+    ] {
+        page.line(at(a.0, a.1), at(b.0, b.1), 1.5 * unit, DASH);
+    }
+    for (u, v) in [
+        (4.0, 4.0),
+        (12.0, 4.0),
+        (20.0, 4.0),
+        (4.0, 12.0),
+        (20.0, 12.0),
+        (4.0, 20.0),
+        (12.0, 20.0),
+        (20.0, 20.0),
+    ] {
+        let (cx, cy) = at(u, v);
+        page.circle(cx, cy, 2.2 * unit, INK);
+    }
+    let (cx, cy) = at(12.0, 12.0);
+    page.circle(cx, cy, 3.0 * unit, ACCENT);
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Align {
     Left,
@@ -94,8 +130,8 @@ struct Cell {
     text: String,
     font: Font,
     color: Color,
-    /// Drawn as a coloured chip with white text instead of plain text.
-    chip: Option<Color>,
+    /// Drawn as a coloured dot and a word in that colour, the way the cockpit shows tiers.
+    dot: Option<Color>,
 }
 
 impl Cell {
@@ -104,7 +140,7 @@ impl Cell {
             text: text.into(),
             font: Font::Regular,
             color: INK,
-            chip: None,
+            dot: None,
         }
     }
 
@@ -122,11 +158,13 @@ impl Cell {
         }
     }
 
-    fn chip(text: impl Into<String>, color: Color) -> Self {
+    fn tier(tier: &str) -> Self {
+        let color = tier_color(tier);
         Self {
             font: Font::Bold,
-            chip: Some(color),
-            ..Self::plain(text)
+            color,
+            dot: Some(color),
+            ..Self::plain(title_case(tier))
         }
     }
 }
@@ -167,22 +205,22 @@ impl Composer {
         self.y -= height;
     }
 
-    /// A section heading, moved to the next page with its section unless `keep` points of the
-    /// section's opening content fit below it.
+    /// A section heading over a dashed blueprint rule, moved to the next page with its section
+    /// unless `keep` points of the section's opening content fit below it.
     fn heading(&mut self, text: &str, keep: f32) {
-        self.room(41.0 + keep);
-        self.gap(20.0);
+        self.room(48.0 + keep);
+        self.gap(24.0);
         let y = self.y;
-        self.page().text(MARGIN, y, 13.0, Font::Bold, INK, text);
-        self.gap(7.0);
+        self.page().text(MARGIN, y, 15.0, Font::Bold, INK, text);
+        self.gap(9.0);
         let y = self.y;
         self.page()
-            .line((MARGIN, y), (MARGIN + WIDTH, y), 0.6, RULE);
-        self.gap(14.0);
+            .dashed((MARGIN, y), (MARGIN + WIDTH, y), 0.7, DASH, 3.0, 3.0);
+        self.gap(15.0);
     }
 
     fn paragraph(&mut self, text: &str, size: f32, font: Font, color: Color) {
-        let leading = size * 1.4;
+        let leading = size * 1.45;
         for line in wrap(text, font, size, WIDTH) {
             self.room(leading);
             let y = self.y - size;
@@ -193,53 +231,81 @@ impl Composer {
 
     fn bullet(&mut self, text: &str) {
         let size = 10.0;
-        let leading = 14.0;
-        let lines = wrap(text, Font::Regular, size, WIDTH - 14.0);
+        let leading = 14.5;
+        let lines = wrap(text, Font::Regular, size, WIDTH - 16.0);
         self.room(leading * lines.len().min(3) as f32);
         for (i, line) in lines.iter().enumerate() {
             self.room(leading);
             let y = self.y - size;
             if i == 0 {
-                self.page()
-                    .text(MARGIN + 2.0, y, size, Font::Bold, ACCENT, "•");
+                self.page().circle(MARGIN + 3.5, y + 3.3, 2.6, ACCENT);
             }
             self.page()
-                .text(MARGIN + 14.0, y, size, Font::Regular, INK, line);
+                .text(MARGIN + 16.0, y, size, Font::Regular, INK, line);
             self.gap(leading);
         }
-        self.gap(3.0);
+        self.gap(4.0);
+    }
+
+    /// A tinted card with an orange edge: the statement a section turns on.
+    fn callout(&mut self, title: &str, body: &str) {
+        let size = 9.0;
+        let leading = 13.0;
+        let lines = wrap(body, Font::Regular, size, WIDTH - 32.0);
+        let height = 44.0 + (lines.len() as f32 - 1.0) * leading;
+        self.room(height + 10.0);
+        let top = self.y;
+        self.page()
+            .round_rect(MARGIN, top - height, WIDTH, height, 10.0, ACCENT_WASH);
+        self.page()
+            .round_rect(MARGIN, top - height, 3.5, height, 1.75, ACCENT);
+        let title = fit(title, Font::Bold, 10.5, WIDTH - 32.0);
+        self.page()
+            .text(MARGIN + 16.0, top - 18.0, 10.5, Font::Bold, INK, &title);
+        for (i, line) in lines.iter().enumerate() {
+            self.page().text(
+                MARGIN + 16.0,
+                top - 33.0 - i as f32 * leading,
+                size,
+                Font::Regular,
+                MUTED,
+                line,
+            );
+        }
+        self.gap(height + 12.0);
     }
 
     fn table(&mut self, columns: &[Column], rows: &[Vec<Cell>]) {
         const SIZE: f32 = 8.5;
         const LEADING: f32 = 11.0;
-        const PAD: f32 = 4.0;
+        const PAD: f32 = 5.0;
         let header = |composer: &mut Self| {
-            composer.room(18.0 + LEADING + 2.0 * PAD);
+            composer.room(20.0 + LEADING + 2.0 * PAD);
             let y = composer.y - 10.0;
             let mut x = MARGIN;
             for column in columns {
-                let title = column.title.to_uppercase();
                 match column.align {
-                    Align::Left => composer
-                        .page()
-                        .text(x + PAD, y, 7.5, Font::Bold, MUTED, &title),
+                    Align::Left => {
+                        composer
+                            .page()
+                            .text(x + PAD, y, 8.0, Font::Bold, FAINT, column.title);
+                    }
                     Align::Right => composer.page().text_right(
                         x + column.width - PAD,
                         y,
-                        7.5,
+                        8.0,
                         Font::Bold,
-                        MUTED,
-                        &title,
+                        FAINT,
+                        column.title,
                     ),
                 }
                 x += column.width;
             }
-            composer.gap(15.0);
+            composer.gap(16.0);
             let y = composer.y;
             composer
                 .page()
-                .line((MARGIN, y), (MARGIN + WIDTH, y), 0.6, RULE);
+                .line((MARGIN, y), (MARGIN + WIDTH, y), 0.7, LINE);
         };
         header(self);
         for (index, row) in rows.iter().enumerate() {
@@ -247,7 +313,7 @@ impl Composer {
                 .iter()
                 .zip(row)
                 .map(|(column, cell)| {
-                    if cell.chip.is_some() {
+                    if cell.dot.is_some() {
                         vec![cell.text.clone()]
                     } else {
                         wrap(&cell.text, cell.font, SIZE, column.width - 2.0 * PAD)
@@ -260,18 +326,14 @@ impl Composer {
                 header(self);
             }
             let top = self.y;
-            if index % 2 == 1 {
-                self.page().rect(MARGIN, top - height, WIDTH, height, PANEL);
-            }
             let mut x = MARGIN;
             for ((column, cell), lines) in columns.iter().zip(row).zip(&wrapped) {
                 for (i, line) in lines.iter().enumerate() {
                     let y = top - PAD - SIZE - i as f32 * LEADING + 1.0;
-                    if let Some(color) = cell.chip {
-                        let width = text_width(line, Font::Bold, 7.0) + 8.0;
-                        self.page().rect(x + PAD, y - 2.5, width, 10.5, color);
+                    if let Some(color) = cell.dot {
+                        self.page().circle(x + PAD + 3.0, y + 3.0, 3.0, color);
                         self.page()
-                            .text(x + PAD + 4.0, y, 7.0, Font::Bold, WHITE, line);
+                            .text(x + PAD + 10.0, y, SIZE, Font::Bold, color, line);
                         continue;
                     }
                     match column.align {
@@ -292,31 +354,36 @@ impl Composer {
                 x += column.width;
             }
             self.gap(height);
+            if index + 1 < rows.len() {
+                let y = self.y;
+                self.page()
+                    .dashed((MARGIN, y), (MARGIN + WIDTH, y), 0.5, LINE, 2.0, 2.0);
+            }
         }
-        self.gap(4.0);
+        self.gap(6.0);
     }
 
-    /// Four headline figures in boxes.
+    /// Four headline figures on paper cards.
     fn figures(&mut self, figures: &[(String, String, Color)]) {
-        let height = 66.0;
-        self.room(height + 10.0);
+        let height = 78.0;
+        self.room(height + 12.0);
         let gutter = 10.0;
         let width = (WIDTH - gutter * (figures.len() as f32 - 1.0)) / figures.len() as f32;
         let top = self.y;
         for (i, (value, label, color)) in figures.iter().enumerate() {
             let x = MARGIN + i as f32 * (width + gutter);
-            self.page().rect(x, top - height, width, height, PANEL);
-            self.page().rect(x, top - height, 3.0, height, *color);
             self.page()
-                .text(x + 12.0, top - 30.0, 22.0, Font::Bold, INK, value);
-            for (j, line) in wrap(label, Font::Regular, 8.5, width - 20.0)
+                .round_rect(x, top - height, width, height, 12.0, PAPER);
+            self.page()
+                .text(x + 14.0, top - 36.0, 27.0, Font::Bold, *color, value);
+            for (j, line) in wrap(label, Font::Regular, 8.5, width - 26.0)
                 .iter()
                 .take(2)
                 .enumerate()
             {
                 self.page().text(
-                    x + 12.0,
-                    top - 45.0 - j as f32 * 10.0,
+                    x + 14.0,
+                    top - 52.0 - j as f32 * 10.5,
                     8.5,
                     Font::Regular,
                     MUTED,
@@ -324,81 +391,126 @@ impl Composer {
                 );
             }
         }
-        self.gap(height + 10.0);
+        self.gap(height + 12.0);
     }
 
-    /// One bar split by tier, with a legend.
+    /// One segmented bar split by tier, with a legend of dots.
     fn tier_bar(&mut self, counts: &BTreeMap<&str, usize>) {
         let total: usize = counts.values().sum();
         if total == 0 {
             return;
         }
-        self.room(48.0);
+        self.room(50.0);
         let top = self.y;
+        let present: Vec<(&str, usize)> = TIERS
+            .iter()
+            .map(|tier| (*tier, counts.get(tier).copied().unwrap_or(0)))
+            .filter(|(_, count)| *count > 0)
+            .collect();
+        let gap = 3.0;
+        let usable = WIDTH - gap * (present.len() as f32 - 1.0);
         let mut x = MARGIN;
-        for tier in TIERS {
-            let count = counts.get(tier).copied().unwrap_or(0);
-            let width = WIDTH * count as f32 / total as f32;
-            if width > 0.0 {
-                self.page()
-                    .rect(x, top - 14.0, width, 14.0, tier_color(tier));
-                x += width;
-            }
+        for (tier, count) in &present {
+            let width = usable * *count as f32 / total as f32;
+            self.page()
+                .round_rect(x, top - 14.0, width, 14.0, 4.0, tier_color(tier));
+            x += width + gap;
         }
         let mut x = MARGIN;
-        let y = top - 30.0;
+        let y = top - 32.0;
         for tier in TIERS {
             let count = counts.get(tier).copied().unwrap_or(0);
-            self.page().rect(x, y - 1.0, 8.0, 8.0, tier_color(tier));
+            self.page().circle(x + 4.0, y + 3.2, 3.5, tier_color(tier));
             let label = format!("{} {count}", title_case(tier));
             self.page()
                 .text(x + 12.0, y, 9.0, Font::Regular, INK, &label);
-            x += 12.0 + text_width(&label, Font::Regular, 9.0) + 18.0;
+            x += 12.0 + text_width(&label, Font::Regular, 9.0) + 20.0;
         }
-        self.gap(44.0);
+        self.gap(46.0);
+    }
+
+    /// Horizontal bars, one per labelled value, scaled to the largest.
+    fn bars(&mut self, rows: &[(String, f64, String, Color)]) {
+        let label_width = 170.0;
+        let note_width = 110.0;
+        let row = 22.0;
+        let height = row * rows.len() as f32 + 6.0;
+        self.room(height);
+        let top = self.y;
+        let max = rows.iter().map(|r| r.1).fold(0.0_f64, f64::max).max(1e-9);
+        let track = WIDTH - label_width - note_width;
+        for (i, (label, value, note, color)) in rows.iter().enumerate() {
+            let y = top - 6.0 - i as f32 * row;
+            self.page().text(
+                MARGIN,
+                y - 10.0,
+                9.0,
+                Font::Regular,
+                INK,
+                &fit(label, Font::Regular, 9.0, label_width - 10.0),
+            );
+            let x = MARGIN + label_width;
+            self.page().round_rect(x, y - 13.0, track, 12.0, 6.0, PAPER);
+            let width = (track * (*value / max) as f32).max(12.0);
+            self.page()
+                .round_rect(x, y - 13.0, width, 12.0, 6.0, *color);
+            self.page().text(
+                x + track + 10.0,
+                y - 10.0,
+                9.0,
+                Font::Regular,
+                MUTED,
+                &fit(note, Font::Regular, 9.0, note_width - 10.0),
+            );
+        }
+        self.gap(height + 6.0);
     }
 
     /// Running header and footer on every page, now that the page count is known.
     fn finish(mut self, subject: &str, generated: &str) -> Vec<Page> {
         let count = self.pages.len();
         for (i, page) in self.pages.iter_mut().enumerate() {
-            let head = PAGE_HEIGHT - 36.0;
+            let head = PAGE_HEIGHT - 42.0;
+            mark(page, MARGIN, head - 3.0, 14.0);
+            page.text(MARGIN + 20.0, head, 9.5, Font::Bold, INK, "LATTICE");
             page.text(
-                MARGIN,
+                MARGIN + 20.0 + text_width("LATTICE", Font::Bold, 9.5) + 6.0,
                 head,
-                8.0,
-                Font::Bold,
-                ACCENT,
-                "LATTICE · Quantum-readiness report",
+                9.0,
+                Font::Regular,
+                FAINT,
+                "Quantum-readiness report",
             );
             page.text_right(
                 MARGIN + WIDTH,
                 head,
-                8.0,
+                9.0,
                 Font::Regular,
                 MUTED,
-                &fit(subject, Font::Regular, 8.0, WIDTH / 2.0),
+                &fit(subject, Font::Regular, 9.0, WIDTH / 2.0),
             );
-            page.line(
-                (MARGIN, head - 8.0),
-                (MARGIN + WIDTH, head - 8.0),
-                0.6,
-                RULE,
+            page.dashed(
+                (MARGIN, head - 12.0),
+                (MARGIN + WIDTH, head - 12.0),
+                0.7,
+                DASH,
+                3.0,
+                3.0,
             );
-            page.line((MARGIN, 48.0), (MARGIN + WIDTH, 48.0), 0.6, RULE);
+            page.dashed((MARGIN, 50.0), (MARGIN + WIDTH, 50.0), 0.7, DASH, 3.0, 3.0);
             page.text(
                 MARGIN,
                 36.0,
                 8.0,
                 Font::Regular,
-                MUTED,
+                FAINT,
                 &format!("Generated {generated} · deterministic rendering of the LATTICE report"),
             );
             page.text_right(
                 MARGIN + WIDTH,
                 36.0,
                 8.0,
-                Font::Regular,
+                Font::Bold,
                 MUTED,
                 &format!("Page {} of {count}", i + 1),
             );
@@ -431,23 +543,44 @@ fn compose(report: &Report, digest: &str) -> Vec<Page> {
     let summary = &report.summary;
     let mut c = Composer::new();
 
-    // title
-    c.paragraph("Quantum-readiness executive report", 22.0, Font::Bold, INK);
-    c.gap(2.0);
-    c.paragraph(&report.subject, 14.0, Font::Bold, ACCENT);
-    c.paragraph(
-        &format!(
-            "Assessed {date} · assessment year {} · Q-day window {}–{} · {} files scanned",
-            provenance.assessment_year,
-            provenance.q_day_earliest,
-            provenance.q_day_latest,
-            report.stats.files_scanned
-        ),
-        9.0,
+    // title, on a paper card
+    let meta = format!(
+        "Assessed {date} · assessment year {} · Q-day window {}–{} · {} files scanned",
+        provenance.assessment_year,
+        provenance.q_day_earliest,
+        provenance.q_day_latest,
+        report.stats.files_scanned
+    );
+    let height = 104.0;
+    let top = c.y;
+    c.page()
+        .round_rect(MARGIN, top - height, WIDTH, height, 14.0, PAPER);
+    mark(c.page(), MARGIN + WIDTH - 62.0, top - height + 30.0, 40.0);
+    c.page().text(
+        MARGIN + 20.0,
+        top - 36.0,
+        21.0,
+        Font::Bold,
+        INK,
+        "Quantum-readiness executive report",
+    );
+    c.page().text(
+        MARGIN + 20.0,
+        top - 60.0,
+        15.0,
+        Font::Bold,
+        ACCENT,
+        &fit(&report.subject, Font::Bold, 15.0, WIDTH - 110.0),
+    );
+    c.page().text(
+        MARGIN + 20.0,
+        top - 82.0,
+        8.5,
         Font::Regular,
         MUTED,
+        &fit(&meta, Font::Regular, 8.5, WIDTH - 110.0),
     );
-    c.gap(14.0);
+    c.gap(height + 14.0);
 
     let mut tiers: BTreeMap<&str, usize> = BTreeMap::new();
     for asset in &report.assets {
@@ -459,12 +592,12 @@ fn compose(report: &Report, digest: &str) -> Vec<Page> {
         (
             summary.assets.to_string(),
             "cryptographic assets found".into(),
-            ACCENT,
+            INK,
         ),
         (
             summary.quantum_vulnerable.to_string(),
             "breakable by a quantum computer".into(),
-            tier_color("high"),
+            ACCENT,
         ),
         (
             summary.mosca_urgent.to_string(),
@@ -611,8 +744,51 @@ fn compose(report: &Report, digest: &str) -> Vec<Page> {
     }
 
     if let Some(plan) = &report.plan {
-        c.heading("Plan against the national timeline", 190.0);
-        c.paragraph(&plan.timeline, 10.0, Font::Bold, INK);
+        c.heading("Plan against the national timeline", 250.0);
+        let team = plan
+            .engineers_needed
+            .map(|engineers| {
+                format!(
+                    " Meeting every deadline from {} takes {} engineer{} full-time.",
+                    plan.assessment_year,
+                    decimal(engineers),
+                    if (engineers - 1.0).abs() < f64::EPSILON {
+                        ""
+                    } else {
+                        "s"
+                    }
+                )
+            })
+            .unwrap_or_default();
+        c.callout(
+            &plan.timeline,
+            &format!(
+                "{} person-weeks of migration work across {} changes.{team}",
+                decimal(plan.total_person_weeks),
+                report.roadmap.len()
+            ),
+        );
+        let bars: Vec<(String, f64, String, Color)> = plan
+            .waves
+            .iter()
+            .map(|wave| {
+                let due = wave
+                    .due_year
+                    .map_or_else(|| "no deadline".to_owned(), |year| format!("due {year}"));
+                let color = match wave.due_year {
+                    Some(_) if wave.overdue => tier_color("critical"),
+                    Some(_) => ACCENT,
+                    None => DASH,
+                };
+                (
+                    wave.name.clone(),
+                    wave.person_weeks,
+                    format!("{} pw · {due}", decimal(wave.person_weeks)),
+                    color,
+                )
+            })
+            .collect();
+        c.bars(&bars);
         c.paragraph(
             &format!(
                 "Source: {}. Engineers are full-time equivalents needed from the start of {} to \
@@ -710,10 +886,7 @@ fn compose(report: &Report, digest: &str) -> Vec<Page> {
         .take(15)
         .map(|asset| {
             vec![
-                Cell::chip(
-                    asset.assessment.tier.to_uppercase(),
-                    tier_color(&asset.assessment.tier),
-                ),
+                Cell::tier(&asset.assessment.tier),
                 Cell::mono(asset.assessment.priority.to_string()),
                 Cell {
                     font: Font::Bold,

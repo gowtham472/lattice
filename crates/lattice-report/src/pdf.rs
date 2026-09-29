@@ -1,5 +1,5 @@
-//! A small, deterministic PDF 1.7 writer: text in the standard 14 fonts, filled rectangles and
-//! lines, nothing else.
+//! A small, deterministic PDF 1.7 writer: text in the standard 14 fonts, filled (and rounded)
+//! rectangles, circles and solid or dashed lines, nothing else.
 //!
 //! The standard fonts need no embedding, so the output is compact and byte-for-byte a function of
 //! what was drawn: no timestamps are read, and the document ID is a hash of the content. Text is
@@ -259,6 +259,112 @@ impl Page {
             num(to.1)
         );
         self.content.extend_from_slice(op.as_bytes());
+    }
+
+    /// A dashed line (`dash` on, `gap` off), with round caps.
+    pub fn dashed(
+        &mut self,
+        from: (f32, f32),
+        to: (f32, f32),
+        width: f32,
+        color: Color,
+        dash: f32,
+        gap: f32,
+    ) {
+        let Color(r, g, b) = color;
+        let op = format!(
+            "q {} {} {} RG {} w 1 J [{} {}] 0 d {} {} m {} {} l S Q\n",
+            num(r),
+            num(g),
+            num(b),
+            num(width),
+            num(dash),
+            num(gap),
+            num(from.0),
+            num(from.1),
+            num(to.0),
+            num(to.1)
+        );
+        self.content.extend_from_slice(op.as_bytes());
+    }
+
+    /// A filled rectangle with corners of `radius`, drawn with Bézier quarter circles.
+    pub fn round_rect(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: Color,
+    ) {
+        let r = radius.min(width / 2.0).min(height / 2.0).max(0.0);
+        if r == 0.0 {
+            return self.rect(x, y, width, height, color);
+        }
+        // control-point distance for a quarter circle
+        let k = r * 0.552_284_8;
+        let (x1, y1) = (x + width, y + height);
+        let Color(cr, cg, cb) = color;
+        let n = num;
+        let op = format!(
+            "{} {} {} rg {} {} m {} {} l {} {} {} {} {} {} c {} {} l {} {} {} {} {} {} c \
+             {} {} l {} {} {} {} {} {} c {} {} l {} {} {} {} {} {} c f\n",
+            n(cr),
+            n(cg),
+            n(cb),
+            // bottom edge, bottom-right corner
+            n(x + r),
+            n(y),
+            n(x1 - r),
+            n(y),
+            n(x1 - r + k),
+            n(y),
+            n(x1),
+            n(y + r - k),
+            n(x1),
+            n(y + r),
+            // right edge, top-right corner
+            n(x1),
+            n(y1 - r),
+            n(x1),
+            n(y1 - r + k),
+            n(x1 - r + k),
+            n(y1),
+            n(x1 - r),
+            n(y1),
+            // top edge, top-left corner
+            n(x + r),
+            n(y1),
+            n(x + r - k),
+            n(y1),
+            n(x),
+            n(y1 - r + k),
+            n(x),
+            n(y1 - r),
+            // left edge, bottom-left corner
+            n(x),
+            n(y + r),
+            n(x),
+            n(y + r - k),
+            n(x + r - k),
+            n(y),
+            n(x + r),
+            n(y),
+        );
+        self.content.extend_from_slice(op.as_bytes());
+    }
+
+    /// A filled circle.
+    pub fn circle(&mut self, cx: f32, cy: f32, radius: f32, color: Color) {
+        self.round_rect(
+            cx - radius,
+            cy - radius,
+            2.0 * radius,
+            2.0 * radius,
+            radius,
+            color,
+        );
     }
 }
 
